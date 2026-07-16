@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#08080a" />
+    <title>Interfaith Scripture Academy</title>
+    <script>
+      (function() {
+        var ignorePatterns = [
+          "websocket",
+          "websocket closed without opened",
+          "vite",
+          "failed to connect to websocket",
+          "hmr",
+          "script error",
+          "script"
+        ];
+        function shouldIgnore(msg) {
+          if (!msg) return true; // Suppress empty/null messages as they represent cross-origin script error symptoms
+          var m = String(msg).toLowerCase();
+          for (var i = 0; i < ignorePatterns.length; i++) {
+            if (m.indexOf(ignorePatterns[i]) !== -1) {
+              return true;
+            }
+          }
+          return false;
+        }
+
+        window.onerror = function(message, source, lineno, colno, error) {
+          if (shouldIgnore(message)) {
+            return true; // Suppresses browser error logging & bubbling
+          }
+        };
+
+        window.addEventListener("error", function(event) {
+          var message = event && event.message ? String(event.message) : "";
+          if (shouldIgnore(message)) {
+            if (event) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+            }
+          }
+        }, true);
+
+        window.addEventListener("unhandledrejection", function(event) {
+          if (event) {
+            var reason = event.reason;
+            var reasonStr = reason ? String(reason.message || reason || "") : "";
+            if (shouldIgnore(reasonStr)) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+            }
+          }
+        }, true);
+
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

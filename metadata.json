@@ -1,0 +1,6 @@
+{
+  "name": "Interfaith Scripture Academy",
+  "description": "An interactive scripture reader and interfaith search tool for browsing, exploring, and comparing holy texts across major world religions.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

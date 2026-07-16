@@ -1,0 +1,112 @@
+{
+  "entities": {
+    "Favorite": {
+      "title": "Favorite",
+      "description": "User's bookmarked scripture portions or holy characters.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user who owns this bookmark" },
+        "type": { "type": "string", "enum": ["scripture", "character"], "description": "Whether this is a bookmarked scripture or character" },
+        "itemKey": { "type": "string", "description": "Key of the bookmarked item" },
+        "portion": { "type": "string", "description": "Optional book portion or chapter reference" },
+        "title": { "type": "string", "description": "Display title of the favorite" },
+        "savedAt": { "type": "string", "format": "date-time", "description": "Self-assigned server timestamp of the bookmark" }
+      },
+      "required": ["userId", "type", "itemKey", "title", "savedAt"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "User's personal study notes for a scripture or character.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user who owns this note" },
+        "itemKey": { "type": "string", "description": "Key of the scripture or character the note is about" },
+        "portion": { "type": "string", "description": "Optional chapter, verse, or division coordinate" },
+        "title": { "type": "string", "description": "Custom user-provided or auto-generated note title" },
+        "content": { "type": "string", "description": "Note markdown content written by user or co-authored with AI" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["userId", "itemKey", "title", "content", "createdAt", "updatedAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Portion/verse-level threaded public notes or private discussions.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user who posted" },
+        "userName": { "type": "string", "description": "Display name of the commenter" },
+        "userPhoto": { "type": "string", "description": "Avatar photo URL" },
+        "verseRef": { "type": "string", "description": "Book key + chapter + verse reference" },
+        "content": { "type": "string", "description": "The content of the comment" },
+        "isPrivate": { "type": "boolean", "description": "Whether this comment is a private journal/note or public discussion" },
+        "parentId": { "type": "string", "description": "Optional parent comment ID for threaded replies" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["userId", "userName", "verseRef", "content", "isPrivate", "createdAt"]
+    },
+    "UserCustomImage": {
+      "title": "UserCustomImage",
+      "description": "User's custom overridden image URL for a scripture book or a sacred character figure.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user who owns this custom image" },
+        "itemKey": { "type": "string", "description": "Key of the book or character (e.g. hindu_prayers or lord_krishna)" },
+        "type": { "type": "string", "enum": ["scripture", "character"], "description": "The type of content being overridden" },
+        "imageUrl": { "type": "string", "description": "The custom absolute image URL entered by the user" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp" }
+      },
+      "required": ["userId", "itemKey", "type", "imageUrl", "updatedAt"]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "Administrator configured global application settings.",
+      "type": "object",
+      "properties": {
+        "isLocked": { "type": "boolean", "description": "Whether general users are locked out from setting or accessing certain interactive galleries" },
+        "updatedBy": { "type": "string", "description": "The administrator UID who modified this setting" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["isLocked", "updatedBy", "updatedAt"]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Log of administrative actions like changing gallery lock status or updating images.",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "description": "The administrative action (e.g., TOGGLE_LOCK, UPDATE_IMAGE, RESET_IMAGE)" },
+        "details": { "type": "string", "description": "Detailed description of the action" },
+        "userEmail": { "type": "string", "description": "Email of the administrator who performed the action" },
+        "userId": { "type": "string", "description": "UID of the administrator" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the action was performed" }
+      },
+      "required": ["action", "details", "userEmail", "userId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/favorites/{favId}": {
+      "schema": "Favorite",
+      "description": "User bookmarks for character panels and scripture chapters."
+    },
+    "/notes/{noteId}": {
+      "schema": "Note",
+      "description": "Personal studiously recorded notes per character/scripture."
+    },
+    "/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Portion/verse-level threaded discussions or private spiritual logs."
+    },
+    "/user_custom_images/{imageId}": {
+      "schema": "UserCustomImage",
+      "description": "User's custom overridden image settings."
+    },
+    "/system_settings/{settingId}": {
+      "schema": "SystemSetting",
+      "description": "Global settings for locking galleries and other administrative policies."
+    },
+    "/admin_audit_logs/{logId}": {
+      "schema": "AdminAuditLog",
+      "description": "Audit logs of administrative settings changes and custom image management."
+    }
+  }
+}

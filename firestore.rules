@@ -1,0 +1,162 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Primitive helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // Connection test rule
+    match /test/{docId} {
+      allow read: if true;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+    
+    // Favorites rules
+    match /favorites/{favId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(favId) 
+                    && incoming().userId == request.auth.uid
+                    && incoming().type in ['scripture', 'character']
+                    && incoming().itemKey is string && incoming().itemKey.size() <= 128
+                    && incoming().title is string && incoming().title.size() <= 256
+                    && (!('portion' in incoming()) || (incoming().portion is string && incoming().portion.size() <= 128))
+                    && incoming().savedAt == request.time;
+      allow update: if false; // Favorites are immutable, delete and recreate to update
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+    
+    // Notes rules
+    match /notes/{noteId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(noteId)
+                    && incoming().userId == request.auth.uid
+                    && incoming().itemKey is string && incoming().itemKey.size() <= 128
+                    && (!('portion' in incoming()) || (incoming().portion is string && incoming().portion.size() <= 128))
+                    && incoming().title is string && incoming().title.size() <= 256
+                    && incoming().content is string && incoming().content.size() <= 10000
+                    && incoming().createdAt == request.time
+                    && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && existing().userId == request.auth.uid
+                    && incoming().userId == request.auth.uid
+                    && incoming().itemKey == existing().itemKey
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().title is string && incoming().title.size() <= 256
+                    && incoming().content is string && incoming().content.size() <= 10000
+                    && incoming().updatedAt == request.time
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'updatedAt']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Comments rules
+    match /comments/{commentId} {
+      allow get: if isSignedIn() && (existing().isPrivate == false || existing().userId == request.auth.uid);
+      allow list: if isSignedIn() && (resource.data.isPrivate == false || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(commentId)
+                    && incoming().userId == request.auth.uid
+                    && incoming().userName is string && incoming().userName.size() <= 128
+                    && (!('userPhoto' in incoming()) || incoming().userPhoto is string && incoming().userPhoto.size() <= 512)
+                    && incoming().verseRef is string && incoming().verseRef.size() <= 128
+                    && incoming().content is string && incoming().content.size() <= 2000
+                    && incoming().isPrivate is bool
+                    && (!('parentId' in incoming()) || incoming().parentId == null || (incoming().parentId is string && incoming().parentId.size() <= 128))
+                    && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && existing().userId == request.auth.uid
+                    && incoming().userId == request.auth.uid
+                    && incoming().verseRef == existing().verseRef
+                    && incoming().createdAt == existing().createdAt
+                    && (!('parentId' in incoming()) || incoming().parentId == existing().parentId)
+                    && incoming().content is string && incoming().content.size() <= 2000
+                    && incoming().isPrivate is bool
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'isPrivate']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Collections rules
+    match /collections/{collectionId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(collectionId)
+                    && incoming().userId == request.auth.uid
+                    && incoming().name is string && incoming().name.size() <= 128
+                    && (!('description' in incoming()) || (incoming().description is string && incoming().description.size() <= 512));
+      allow update: if isSignedIn() && existing().userId == request.auth.uid
+                    && incoming().userId == request.auth.uid
+                    && incoming().name is string && incoming().name.size() <= 128
+                    && (!('description' in incoming()) || (incoming().description is string && incoming().description.size() <= 512));
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Collection verses rules
+    match /collection_verses/{itemId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(itemId)
+                    && incoming().userId == request.auth.uid
+                    && incoming().collectionId is string && incoming().collectionId.size() <= 128;
+      allow update: if isSignedIn() && existing().userId == request.auth.uid
+                    && incoming().userId == request.auth.uid;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Custom user images rules - Public Read, Admin-only write
+    match /user_custom_images/{imageId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.auth.token.email == "adarshshuklagarg@gmail.com"
+                    && isValidId(imageId)
+                    && incoming().userId == request.auth.uid
+                    && incoming().itemKey is string && incoming().itemKey.size() <= 128
+                    && incoming().type in ['scripture', 'character']
+                    && incoming().imageUrl is string && incoming().imageUrl.size() <= 1024;
+      allow update: if isSignedIn() && request.auth.token.email == "adarshshuklagarg@gmail.com"
+                    && incoming().userId == request.auth.uid
+                    && incoming().itemKey == existing().itemKey
+                    && incoming().type == existing().type
+                    && incoming().imageUrl is string && incoming().imageUrl.size() <= 1024;
+      allow delete: if isSignedIn() && request.auth.token.email == "adarshshuklagarg@gmail.com";
+    }
+
+    // System settings rules - Public Read, Admin-only write
+    match /system_settings/{settingId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.auth.token.email == "adarshshuklagarg@gmail.com"
+                    && isValidId(settingId)
+                    && incoming().isLocked is bool
+                    && incoming().updatedBy == request.auth.uid
+                    && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && request.auth.token.email == "adarshshuklagarg@gmail.com"
+                    && incoming().isLocked is bool
+                    && incoming().updatedBy == request.auth.uid
+                    && incoming().updatedAt == request.time;
+      allow delete: if isSignedIn() && request.auth.token.email == "adarshshuklagarg@gmail.com";
+    }
+
+    // Admin audit logs rules - Admin-only read, admin-only write, no update, no delete
+    match /admin_audit_logs/{logId} {
+      allow read: if isSignedIn() && request.auth.token.email == "adarshshuklagarg@gmail.com";
+      allow create: if isSignedIn() && request.auth.token.email == "adarshshuklagarg@gmail.com"
+                    && isValidId(logId)
+                    && incoming().action is string
+                    && incoming().details is string
+                    && incoming().userEmail == request.auth.token.email
+                    && incoming().userId == request.auth.uid
+                    && incoming().timestamp == request.time;
+      allow update, delete: if false;
+    }
+  }
+}

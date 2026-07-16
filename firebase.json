@@ -1,0 +1,16 @@
+{
+  "firestore": [
+    {
+      "database": "(default)",
+      "rules": "firestore.rules"
+    },
+    {
+      "database": "interfaith-108",
+      "rules": "firestore.rules"
+    },
+    {
+      "database": "ai-studio-b2e32fdd-3ee5-4e14-94e3-fcb48f44bdfa",
+      "rules": "firestore.rules"
+    }
+  ]
+}

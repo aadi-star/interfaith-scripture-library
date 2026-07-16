@@ -1,0 +1,920 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* Optimized font-face for Noto Sans Devanagari using size-adjust to match surrounding fonts */
+@font-face {
+  font-family: "Noto Sans Devanagari Adjusted";
+  src: local("Noto Sans Devanagari"), local("Kohinoor Devanagari"), local("Segoe UI Devanagari");
+  font-weight: 100 900;
+  size-adjust: 91%;
+  ascent-override: 105%;
+  descent-override: 35%;
+  line-gap-override: 0%;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Cinzel", Georgia, serif;
+  --font-hindi: "Noto Sans Devanagari Adjusted", "Noto Sans Devanagari", "Kohinoor Devanagari", "Segoe UI", system-ui, sans-serif;
+}
+
+/* Custom utility for Hindi/Devanagari text to prevent vertical clipping from top and bottom matras */
+.font-hindi {
+  font-family: "Noto Sans Devanagari Adjusted", "Noto Sans Devanagari", "Kohinoor Devanagari", "Segoe UI", system-ui, sans-serif !important;
+  line-height: 1.85 !important;
+  letter-spacing: 0.015em !important;
+  padding-top: 0.15rem !important;
+  padding-bottom: 0.15rem !important;
+  font-feature-settings: "kern" 1, "liga" 1, "clig" 1, "calt" 1 !important;
+  font-kerning: normal !important;
+}
+
+/* Explicit font feature settings for the interactive reading desk to support complex Indic ligatures */
+#interactive-reading-desk .font-hindi {
+  font-feature-settings: "kern" 1, "liga" 1, "clig" 1, "calt" 1 !important;
+  font-kerning: normal !important;
+  text-rendering: optimizeLegibility !important;
+}
+
+body {
+  @apply bg-[#08080a] text-slate-200 font-sans antialiased;
+  background-image: radial-gradient(rgba(245, 158, 11, 0.02) 1px, transparent 1px);
+  background-size: 32px 32px;
+  /* Prevent horizontal rebound scrolls on mobile */
+  overflow-x: hidden;
+  /* Safe area padding for notch displays */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Make buttons and interactive cards feel like native mobile controls */
+button, 
+a, 
+select, 
+input, 
+textarea {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Smooth momentum scrolling for iOS WebKit */
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Custom layout class ensuring headers do not get compressed on small screens */
+.safe-padding-bottom {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(245, 158, 11, 0.2);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 158, 11, 0.4);
+}
+
+/* ==========================================================================
+   HIGH-CONTRAST LIGHT MODE (AURA PARCHMENT) THEME OVERRIDES
+   Provides pristine, high-contrast book-like typography suitable for long
+   scripture study sessions.
+   ========================================================================== */
+
+/* Variable definitions with paper variations */
+html.light {
+  --paper-bg: #f7f5ee;
+  --paper-text: #121214;
+  --paper-dot: rgba(180, 150, 100, 0.08);
+  --paper-header: #efeae0;
+  --paper-card: #ffffff;
+  --paper-border: #dbcfa7;
+  --paper-inner-bg: #fbf9f4;
+  --paper-inner-text: #2d2f34;
+}
+
+html.light.paper-cream {
+  --paper-bg: #f7f5ee;
+  --paper-text: #121214;
+  --paper-dot: rgba(180, 150, 100, 0.08);
+  --paper-header: #efeae0;
+  --paper-card: #ffffff;
+  --paper-border: #dbcfa7;
+  --paper-inner-bg: #fbf9f4;
+  --paper-inner-text: #2d2f34;
+}
+
+html.light.paper-sepia {
+  --paper-bg: #f2e6c9;
+  --paper-text: #2b1f0d;
+  --paper-dot: rgba(139, 90, 43, 0.08);
+  --paper-header: #e6d7b5;
+  --paper-card: #fcfaef;
+  --paper-border: #caa873;
+  --paper-inner-bg: #eeddbb;
+  --paper-inner-text: #3d2d18;
+}
+
+html.light.paper-slate {
+  --paper-bg: #e5e9f0;
+  --paper-text: #1a202c;
+  --paper-dot: rgba(100, 116, 139, 0.08);
+  --paper-header: #d4dbe5;
+  --paper-card: #f8fafc;
+  --paper-border: #b8c4d4;
+  --paper-inner-bg: #e2e8f0;
+  --paper-inner-text: #2d3748;
+}
+
+html.light, html.light body {
+  background-color: var(--paper-bg) !important;
+  color: var(--paper-text) !important;
+  background-image: radial-gradient(var(--paper-dot) 1px, transparent 1px) !important;
+}
+
+html.light .min-h-screen {
+  background-color: var(--paper-bg) !important;
+  color: var(--paper-text) !important;
+}
+
+/* Base header adjustments */
+html.light header {
+  background-color: var(--paper-header) !important;
+  border-color: var(--paper-border) !important;
+}
+
+html.light header h1 {
+  color: var(--paper-text) !important;
+}
+
+html.light header p,
+html.light header span,
+html.light header button,
+html.light header svg {
+  color: var(--paper-inner-text) !important;
+}
+
+html.light header .bg-emerald-500\/10 {
+  background-color: #d1fae5 !important;
+  border-color: #a7f3d0 !important;
+}
+html.light header .bg-emerald-500\/10 span {
+  color: #065f46 !important;
+}
+
+/* Container Blocks mapped to high-contrast white pages with soft gold borders */
+html.light .bg-white\/\[0\.03\],
+html.light .bg-white\/\[0\.02\],
+html.light .bg-white\/\[0\.01\],
+html.light .bg-white\/\[0\.04\] {
+  background-color: var(--paper-card) !important;
+  border-color: var(--paper-border) !important;
+}
+
+html.light .border-white\/10,
+html.light .border-white\/5 {
+  border-color: var(--paper-border) !important;
+}
+
+html.light main.bg-white\/\[0\.01\] {
+  background-color: var(--paper-card) !important;
+  border-color: var(--paper-border) !important;
+}
+
+/* Nav Item buttons when unselected and selected */
+html.light button[id^="nav-"] {
+  color: var(--paper-inner-text) !important;
+}
+html.light button[id^="nav-"]:hover {
+  background-color: var(--paper-header) !important;
+}
+html.light button[id^="nav-"].bg-amber-500 {
+  background-color: #b45309 !important;
+  color: #ffffff !important;
+}
+
+/* Text selections & display titles */
+html.light .text-white,
+html.light .text-slate-100,
+html.light .text-slate-200,
+html.light .text-slate-300,
+html.light .text-stone-100,
+html.light .text-stone-200,
+html.light .text-stone-300 {
+  color: var(--paper-text) !important;
+}
+
+html.light .text-slate-400,
+html.light .text-slate-500,
+html.light .text-stone-400,
+html.light .text-stone-500 {
+  color: var(--paper-inner-text) !important;
+}
+
+html.light .text-amber-200,
+html.light .text-amber-300,
+html.light .text-amber-400,
+html.light .text-amber-500 {
+  color: #b45309 !important;
+}
+
+/* Special labels & cards */
+html.light .bg-\[\#0e0e13\],
+html.light .bg-\[\#111116\],
+html.light .bg-\[\#0a0a0d\],
+html.light .bg-\[\#050507\],
+html.light .bg-black\/40 {
+  background-color: var(--paper-inner-bg) !important;
+  border-color: var(--paper-border) !important;
+}
+
+html.light .bg-white\/5 {
+  background-color: var(--paper-header) !important;
+}
+
+/* Active verse custom highlight container */
+html.light .bg-amber-500\/5 {
+  background-color: #fffbeb !important;
+  border-color: #fcd34d !important;
+}
+
+/* Dropdown standard pickers */
+html.light select,
+html.light input,
+html.light textarea {
+  background-color: #ffffff !important;
+  color: var(--paper-text) !important;
+  border-color: var(--paper-border) !important;
+}
+
+/* Scroller adjustments */
+html.light ::-webkit-scrollbar-track {
+  background: var(--paper-bg);
+}
+html.light ::-webkit-scrollbar-thumb {
+  background: rgba(180, 150, 100, 0.3);
+}
+
+/* Custom equalizing audio wave simulation bar */
+@keyframes audio-bar-pulsing {
+  0%, 100% {
+    height: 6px;
+  }
+  50% {
+    height: 38px;
+  }
+}
+
+.animate-audio-bar {
+  animation: audio-bar-pulsing 1.2s ease-in-out infinite;
+}
+
+/* Satisfaction Completion Feedback for Reading Progress Bar */
+@keyframes progress-completed-glow {
+  0%, 100% {
+    box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.35), 0 0 20px 4px rgba(245, 158, 11, 0.15);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 24px 6px rgba(245, 158, 11, 0.7), 0 0 36px 8px rgba(245, 158, 11, 0.3);
+    filter: brightness(1.25);
+  }
+}
+
+@keyframes progress-color-shift {
+  0% {
+    filter: hue-rotate(0deg) saturate(1);
+  }
+  50% {
+    filter: hue-rotate(20deg) saturate(1.2);
+  }
+  100% {
+    filter: hue-rotate(0deg) saturate(1);
+  }
+}
+
+.animate-completed-glow {
+  animation: progress-completed-glow 2s ease-in-out infinite, progress-color-shift 4.5s ease-in-out infinite;
+}
+
+/* Smooth transition for the Reading Progress Bar width changes */
+#chapter-reading-progress-bar {
+  transition: width 0.3s ease-out !important;
+}
+
+/* Micro wave-form overlay animation keyframes and helper classes */
+@keyframes micro-wave-1 {
+  0%, 100% { height: 4px; }
+  50% { height: 14px; }
+}
+@keyframes micro-wave-2 {
+  0%, 100% { height: 6px; }
+  50% { height: 18px; }
+}
+@keyframes micro-wave-3 {
+  0%, 100% { height: 3px; }
+  50% { height: 10px; }
+}
+@keyframes micro-wave-4 {
+  0%, 100% { height: 5px; }
+  50% { height: 15px; }
+}
+
+.animate-micro-wave-1 {
+  animation: micro-wave-1 0.7s ease-in-out infinite;
+}
+.animate-micro-wave-2 {
+  animation: micro-wave-2 0.5s ease-in-out infinite;
+}
+.animate-micro-wave-3 {
+  animation: micro-wave-3 0.8s ease-in-out infinite;
+}
+.animate-micro-wave-4 {
+  animation: micro-wave-4 0.6s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   QUIET STUDY SCHEDULE OVERRIDES
+   Automatically lowers the intensity of neon accents, glow animations, 
+   and handles the comforting sepia paper styling during Quiet Study hours.
+   ========================================================================== */
+
+/* Force light sepia variables if quiet-study is active */
+html.quiet-study {
+  --paper-bg: #ecdcb1 !important;
+  --paper-text: #3d2f16 !important;
+  --paper-dot: rgba(139, 90, 43, 0.05) !important;
+  --paper-header: #dfcca0 !important;
+  --paper-card: #f8f1de !important;
+  --paper-border: #caa168 !important;
+  --paper-inner-bg: #e6d4af !important;
+  --paper-inner-text: #4e3c20 !important;
+}
+
+html.quiet-study, html.quiet-study body, html.quiet-study .min-h-screen {
+  background-color: var(--paper-bg) !important;
+  color: var(--paper-text) !important;
+  background-image: radial-gradient(var(--paper-dot) 1px, transparent 1px) !important;
+}
+
+/* Force light theme behavior on other elements */
+html.quiet-study header {
+  background-color: var(--paper-header) !important;
+  border-color: var(--paper-border) !important;
+}
+html.quiet-study header h1 {
+  color: var(--paper-text) !important;
+}
+html.quiet-study header p,
+html.quiet-study header span,
+html.quiet-study header button,
+html.quiet-study header svg {
+  color: var(--paper-inner-text) !important;
+}
+
+/* Lower-intensity accent colors for all religions / elements */
+html.quiet-study .bg-amber-500,
+html.quiet-study .bg-amber-600,
+html.quiet-study .bg-emerald-500,
+html.quiet-study .bg-emerald-600,
+html.quiet-study .bg-indigo-500,
+html.quiet-study .bg-indigo-600,
+html.quiet-study .bg-blue-500,
+html.quiet-study .bg-blue-600,
+html.quiet-study .bg-rose-500,
+html.quiet-study .bg-rose-600,
+html.quiet-study .bg-orange-500,
+html.quiet-study .bg-orange-600,
+html.quiet-study .bg-violet-500,
+html.quiet-study .bg-fuchsia-500,
+html.quiet-study .bg-cyan-500 {
+  background-color: #8c6a3c !important; /* Muted, organic bronze/amber */
+  color: #fad390 !important;
+  box-shadow: none !important;
+}
+
+html.quiet-study .text-amber-400,
+html.quiet-study .text-amber-500,
+html.quiet-study .text-emerald-400,
+html.quiet-study .text-indigo-400,
+html.quiet-study .text-blue-400,
+html.quiet-study .text-rose-400,
+html.quiet-study .text-orange-400,
+html.quiet-study .text-violet-400,
+html.quiet-study .text-fuchsia-400,
+html.quiet-study .text-cyan-400 {
+  color: #8c6a3c !important; /* Low intensity warm accent */
+}
+
+/* Eliminate active highlights and high-saturation badge borders */
+html.quiet-study .border-amber-500,
+html.quiet-study .border-emerald-500,
+html.quiet-study .border-indigo-500,
+html.quiet-study .border-blue-500,
+html.quiet-study .border-rose-500,
+html.quiet-study .border-orange-500,
+html.quiet-study .border-violet-500,
+html.quiet-study .border-fuchsia-500,
+html.quiet-study .border-cyan-500 {
+  border-color: #caa873 !important;
+}
+
+/* Mute the active chapter progress markers and bars */
+html.quiet-study #chapter-reading-progress-bar {
+  background-color: #a48153 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+/* Pulse animation removal on badges or icons */
+html.quiet-study .animate-pulse {
+  animation: none !important;
+}
+
+html.quiet-study .animate-completed-glow {
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+/* ==========================================================================
+   HIGH-CONTRAST MODE (STARK WHITE ON PURE BLACK)
+   ========================================================================== */
+html.high-contrast,
+html.high-contrast body,
+html.high-contrast #root {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  background-image: none !important;
+}
+
+html.high-contrast * {
+  border-color: #ffffff !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+html.high-contrast h1,
+html.high-contrast h2,
+html.high-contrast h3,
+html.high-contrast h4,
+html.high-contrast h5,
+html.high-contrast h6,
+html.high-contrast p,
+html.high-contrast span,
+html.high-contrast div,
+html.high-contrast label,
+html.high-contrast li,
+html.high-contrast input,
+html.high-contrast textarea,
+html.high-contrast button {
+  color: #ffffff !important;
+  background-image: none !important;
+}
+
+html.high-contrast input[type="range"]::-webkit-slider-runnable-track {
+  background: #ffffff !important;
+}
+
+html.high-contrast input[type="range"]::-webkit-slider-thumb {
+  background: #ffffff !important;
+  border: 2px solid #000000 !important;
+}
+
+html.high-contrast .bg-white\/5,
+html.high-contrast .bg-white\/\[0\.02\],
+html.high-contrast .bg-white\/\[0\.01\],
+html.high-contrast .bg-zinc-900,
+html.high-contrast .bg-slate-900,
+html.high-contrast .bg-slate-950,
+html.high-contrast .bg-slate-800,
+html.high-contrast .bg-zinc-950,
+html.high-contrast .bg-slate-900\/50,
+html.high-contrast .bg-amber-500\/5,
+html.high-contrast .bg-amber-500\/10,
+html.high-contrast .bg-amber-500\/20,
+html.high-contrast .bg-emerald-500\/10,
+html.high-contrast .bg-rose-500\/10,
+html.high-contrast .bg-white\/\[0\.05\],
+html.high-contrast .bg-slate-950\/80,
+html.high-contrast .bg-gradient-to-r,
+html.high-contrast .bg-gradient-to-b,
+html.high-contrast .bg-gradient-to-t {
+  background-color: #000000 !important;
+  background-image: none !important;
+  border: 1px solid #ffffff !important;
+}
+
+html.high-contrast button:hover,
+html.high-contrast a:hover {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+html.high-contrast button:hover * {
+  color: #000000 !important;
+}
+
+html.high-contrast .text-amber-500,
+html.high-contrast .text-amber-400,
+html.high-contrast .text-slate-400,
+html.high-contrast .text-slate-300,
+html.high-contrast .text-slate-500,
+html.high-contrast .text-emerald-400,
+html.high-contrast .text-indigo-400,
+html.high-contrast .text-blue-400,
+html.high-contrast .text-rose-400,
+html.high-contrast .text-orange-400,
+html.high-contrast .text-cyan-400 {
+  color: #ffffff !important;
+}
+
+html.high-contrast svg {
+  stroke: #ffffff !important;
+}
+
+/* ==========================================================================
+   READING PRESETS & VISUAL THEMES
+   Dynamically overrides font styles and colors across the entire academy.
+   ========================================================================== */
+
+/* 1. Mystic Dark (Default Academic Scholarly Mode) */
+html.preset-mystic-dark {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-display: "Cinzel", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* 2. Midnight Monastic (Deep mystical dark mode, golden serif typography) */
+html.preset-midnight-monastic {
+  --font-sans: "Playfair Display", Georgia, serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-display: "Cinzel", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+html.preset-midnight-monastic,
+html.preset-midnight-monastic body,
+html.preset-midnight-monastic .min-h-screen {
+  background-color: #07090e !important;
+  color: #e2dcd0 !important;
+  background-image: radial-gradient(rgba(197, 168, 128, 0.05) 1px, transparent 1px) !important;
+}
+
+html.preset-midnight-monastic header {
+  background-color: #040508 !important;
+  border-color: rgba(197, 168, 128, 0.15) !important;
+}
+
+html.preset-midnight-monastic header h1 {
+  color: #f7f4eb !important;
+}
+
+html.preset-midnight-monastic header p,
+html.preset-midnight-monastic header span,
+html.preset-midnight-monastic header button,
+html.preset-midnight-monastic header svg {
+  color: #c5a880 !important;
+}
+
+html.preset-midnight-monastic .text-amber-500,
+html.preset-midnight-monastic .text-amber-400,
+html.preset-midnight-monastic .text-amber-300,
+html.preset-midnight-monastic .text-amber-200 {
+  color: #c5a880 !important;
+}
+
+html.preset-midnight-monastic .border-white\/10,
+html.preset-midnight-monastic .border-white\/5 {
+  border-color: rgba(197, 168, 128, 0.12) !important;
+}
+
+html.preset-midnight-monastic .bg-white\/\[0\.03\],
+html.preset-midnight-monastic .bg-white\/\[0\.02\],
+html.preset-midnight-monastic .bg-white\/\[0\.01\],
+html.preset-midnight-monastic .bg-white\/\[0\.04\],
+html.preset-midnight-monastic [class*="bg-[#0d0d11]"],
+html.preset-midnight-monastic .bg-slate-900\/50,
+html.preset-midnight-monastic .bg-slate-950\/80 {
+  background-color: #0e111a !important;
+  border-color: rgba(197, 168, 128, 0.15) !important;
+}
+
+html.preset-midnight-monastic .text-white,
+html.preset-midnight-monastic .text-slate-100,
+html.preset-midnight-monastic .text-slate-200,
+html.preset-midnight-monastic .text-slate-300,
+html.preset-midnight-monastic .text-stone-100,
+html.preset-midnight-monastic .text-stone-200,
+html.preset-midnight-monastic .text-stone-300 {
+  color: #e2dcd0 !important;
+}
+
+html.preset-midnight-monastic .text-slate-400,
+html.preset-midnight-monastic .text-slate-500,
+html.preset-midnight-monastic .text-stone-400,
+html.preset-midnight-monastic .text-stone-500 {
+  color: #a49e94 !important;
+}
+
+html.preset-midnight-monastic svg {
+  stroke: #c5a880 !important;
+}
+
+/* 3. Morning Sun (Soft, bright warm amber light mode, clean modern sans-serif) */
+html.preset-morning-sun {
+  --paper-bg: #fdfaf2;
+  --paper-text: #1e1f21;
+  --paper-dot: rgba(230, 180, 80, 0.12);
+  --paper-header: #f5eedb;
+  --paper-card: #ffffff;
+  --paper-border: #e6cb9a;
+  --paper-inner-bg: #fcf8ee;
+  --paper-inner-text: #4e4435;
+  
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Cinzel", Georgia, serif;
+}
+
+/* 4. Parchment (Classical physical book parchment sepia mode, Playfair serif body) */
+html.preset-parchment {
+  --paper-bg: #f3eacf;
+  --paper-text: #2f1d0c;
+  --paper-dot: rgba(130, 90, 40, 0.08);
+  --paper-header: #e9dec0;
+  --paper-card: #fbf7ec;
+  --paper-border: #caa873;
+  --paper-inner-bg: #eeddbb;
+  --paper-inner-text: #4d331a;
+  
+  --font-sans: "Playfair Display", Georgia, serif;
+  --font-display: "Cinzel", Georgia, serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+}
+
+/* 5. Cosmic Monospace (Sharp terminal/academic matrix pitch black, monospace font) */
+html.preset-cosmic-mono {
+  --font-sans: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-serif: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+html.preset-cosmic-mono,
+html.preset-cosmic-mono body,
+html.preset-cosmic-mono .min-h-screen {
+  background-color: #000000 !important;
+  color: #0ea5e9 !important;
+  background-image: radial-gradient(rgba(14, 165, 233, 0.06) 1px, transparent 1px) !important;
+}
+
+html.preset-cosmic-mono header {
+  background-color: #040404 !important;
+  border-color: rgba(14, 165, 233, 0.3) !important;
+}
+
+html.preset-cosmic-mono header h1 {
+  color: #ffffff !important;
+}
+
+html.preset-cosmic-mono header p,
+html.preset-cosmic-mono header span,
+html.preset-cosmic-mono header button,
+html.preset-cosmic-mono header svg {
+  color: #38bdf8 !important;
+}
+
+html.preset-cosmic-mono .text-amber-500,
+html.preset-cosmic-mono .text-amber-400,
+html.preset-cosmic-mono .text-amber-300,
+html.preset-cosmic-mono .text-amber-200 {
+  color: #0ea5e9 !important;
+}
+
+html.preset-cosmic-mono .border-white\/10,
+html.preset-cosmic-mono .border-white\/5 {
+  border-color: rgba(14, 165, 233, 0.25) !important;
+}
+
+html.preset-cosmic-mono .bg-white\/\[0\.03\],
+html.preset-cosmic-mono .bg-white\/\[0\.02\],
+html.preset-cosmic-mono .bg-white\/\[0\.01\],
+html.preset-cosmic-mono .bg-white\/\[0\.04\],
+html.preset-cosmic-mono [class*="bg-[#0d0d11]"],
+html.preset-cosmic-mono .bg-slate-900\/50,
+html.preset-cosmic-mono .bg-slate-950\/80 {
+  background-color: #070709 !important;
+  border-color: rgba(14, 165, 233, 0.25) !important;
+}
+
+html.preset-cosmic-mono .text-white,
+html.preset-cosmic-mono .text-slate-100,
+html.preset-cosmic-mono .text-slate-200,
+html.preset-cosmic-mono .text-slate-300,
+html.preset-cosmic-mono .text-stone-100,
+html.preset-cosmic-mono .text-stone-200,
+html.preset-cosmic-mono .text-stone-300 {
+  color: #e0f2fe !important;
+}
+
+html.preset-cosmic-mono .text-slate-400,
+html.preset-cosmic-mono .text-slate-500,
+html.preset-cosmic-mono .text-stone-400,
+html.preset-cosmic-mono .text-stone-500 {
+  color: #7dd3fc !important;
+}
+
+html.preset-cosmic-mono svg {
+  stroke: #0ea5e9 !important;
+}
+
+/* ==========================================================================
+   PRISTINE BOOK-LIKE PRINT STYLING
+   ========================================================================== */
+@media print {
+  /* Force a clean, print-friendly background color layout */
+  html, 
+  body, 
+  #root, 
+  .min-h-screen {
+    background-color: #ffffff !important;
+    background-image: none !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Force display: block and reset flex/hidden wrappers that block flow layout */
+  div, 
+  main, 
+  section {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block !important;
+    position: static !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Hide headers, sidebars, controls, search widgets, breadcrumbs, audios, help dialogs, etc. */
+  header,
+  footer,
+  aside,
+  nav,
+  button,
+  select,
+  input,
+  textarea,
+  iframe,
+  .no-print,
+  #reader-breadcrumb,
+  #focus-zoom-controls,
+  #sync-status-badge,
+  #focus-sync-status-badge,
+  #chapter-reading-progress-bar,
+  .audio-player-container,
+  #recent-verses-sidebar,
+  .quick-study-notes-widget,
+  [id^="speak-verse-"],
+  [id^="copy-citation-"],
+  [id^="align-v-"] {
+    display: none !important;
+  }
+
+  /* Only display the main interactive scripture desk */
+  #interactive-reading-desk {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide selectors, summaries and headers in reading desk if they aren't part of scripture text */
+  #interactive-reading-desk .bg-white\/5,
+  #interactive-reading-desk .bg-amber-500\/10,
+  #interactive-reading-desk .bg-gradient-to-r,
+  #interactive-reading-desk #verses-reader-search,
+  #interactive-reading-desk #save-quick-note {
+    display: none !important;
+  }
+
+  /* Format verses beautifully */
+  [id^="verse-panel-"] {
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    border-bottom: 1px dashed #cccccc !important;
+    border-radius: 0 !important;
+    padding: 18px 0 !important;
+    margin: 0 !important;
+    page-break-inside: avoid !important;
+    box-shadow: none !important;
+  }
+
+  /* Force standard high-contrast printing typography on verses */
+  [id^="verse-panel-"] * {
+    color: #000000 !important;
+    background: transparent !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Text layout - Original and Translation side-by-side or beautifully stacked */
+  [id^="verse-panel-"] .grid {
+    display: grid !important;
+    grid-template-cols: 1fr 1fr !important;
+    gap: 24px !important;
+  }
+
+  /* Labels */
+  [id^="verse-panel-"] .font-mono {
+    font-family: monospace !important;
+    font-size: 9pt !important;
+    color: #444444 !important;
+  }
+
+  /* Verse block numbers */
+  [id^="verse-panel-"] .text-amber-400 {
+    font-size: 10pt !important;
+    font-weight: bold !important;
+    color: #000000 !important;
+    border: none !important;
+  }
+
+  /* Original Liturgical Script */
+  [id^="verse-panel-"] .text-amber-200,
+  [id^="verse-panel-"] .text-amber-300 {
+    font-family: "Noto Sans Devanagari", "Kohinoor Devanagari", "Segoe UI", Georgia, serif !important;
+    font-size: 14pt !important;
+    line-height: 1.8 !important;
+    color: #111111 !important;
+    text-align: right !important;
+    font-feature-settings: "kern" 1, "liga" 1, "clig" 1, "calt" 1 !important;
+    font-kerning: normal !important;
+    text-rendering: optimizeLegibility !important;
+  }
+
+  /* Phonetic transliteration */
+  [id^="verse-panel-"] .text-slate-300 {
+    font-family: monospace !important;
+    font-size: 9pt !important;
+    color: #555555 !important;
+  }
+
+  /* Translation */
+  [id^="verse-panel-"] .text-slate-100 {
+    font-family: Georgia, serif !important;
+    font-size: 11pt !important;
+    line-height: 1.5 !important;
+    color: #000000 !important;
+  }
+
+  /* Commentary & Parallels */
+  #scholar-commentary,
+  #interfaith-parallels {
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #dddddd !important;
+    border-radius: 4px !important;
+    margin-top: 24px !important;
+    padding: 16px !important;
+    page-break-inside: avoid !important;
+  }
+
+  #scholar-commentary *,
+  #interfaith-parallels * {
+    color: #000000 !important;
+    background: transparent !important;
+  }
+
+  /* Hide scrollbar indicators and animations */
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+
+
