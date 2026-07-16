@@ -96,16 +96,35 @@ export default function Header({
 
 
   useEffect(() => {
-    fetch("/api/config")
-      .then((res) => res.json())
-      .then((data) => {
-        setConfigStatus(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Failed to load config status:", err);
-        setLoading(false);
-      });
+    let active = true;
+    const fetchWithRetry = async (retries = 4, delay = 1000) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const res = await fetch("/api/config");
+          if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+          const data = await res.json();
+          if (active) {
+            setConfigStatus(data);
+            setLoading(false);
+          }
+          return;
+        } catch (err) {
+          if (i === retries - 1) {
+            console.error("Failed to load config status:", err);
+            if (active) {
+              setLoading(false);
+            }
+          } else {
+            // Wait with backoff before next attempt
+            await new Promise((resolve) => setTimeout(resolve, delay * (i + 1)));
+          }
+        }
+      }
+    };
+    fetchWithRetry();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const currentProgress = studyGoalType === "minutes" ? todayMinutesStudied : todayChaptersStudied;
