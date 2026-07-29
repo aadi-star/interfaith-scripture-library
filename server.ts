@@ -148,7 +148,8 @@ Stack: ${stack}
   res.sendStatus(200);
 });
 
-const PORT = 3000;
+// Dynamically use the PORT env variable provided by Cloud Run, fallback to 3000 for local development
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 // Initialize Gemini SDK lazily to prevent hard-crash if the API key is missing.
 let aiInstance: GoogleGenAI | null = null;
