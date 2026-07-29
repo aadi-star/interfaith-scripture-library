@@ -1,0 +1,31 @@
+{
+  "branch": "krishna",
+  "kandas": [
+    {
+      "kanda_number": 1,
+      "kanda_title": "Kanda 1 (Prapathaka 1)",
+      "prashnas": [
+        {
+          "prashna_number": 1,
+          "prashna_title": "Prashna 1",
+          "verses": [
+            {
+              "verse_number": 1,
+              "reference": "1.1.1",
+              "text": "इ॒षे त्वा॑ ऊ॒र्जे त्वा॑ वा॒यवः॑ स्थ दे॒वो वः॑ सवि॒ता प्रार्प॑यतु॒ श्रेष्ठ॑तमाय॒ कर्म॑णे ।",
+              "transliteration": "iṣe tvā ūrje tvā vāyavaḥ stha devo vaḥ savitā prārpayatu śreṣṭhatamāya karmaṇe |",
+              "translation": "For sap thee, for juice thee! Ye are winds. May God Savitar impel you to the highest work!"
+            },
+            {
+              "verse_number": 2,
+              "reference": "1.1.2",
+              "text": "आप्या॑यध्वमघ्निया देवभा॒गमूर्ज॑स्वतीः॒ पय॑स्वतीः प्र॒जाव॑तीरनमी॒वा अ॑य॒क्ष्माः ।",
+              "transliteration": "āpyāyadhvamaghniyā devabhāgamūrjasvatīḥ payasvatīḥ prajāvatīranamīvā ayakṣmāḥ |",
+              "translation": "Swell, O ye inviolable ones, for the portion of the Gods, full of juice, full of milk, rich in offspring, free from disease, free from sickness!"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

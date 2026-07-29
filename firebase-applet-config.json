@@ -7,5 +7,6 @@
   "storageBucket": "hallowed-scout-371nt.firebasestorage.app",
   "messagingSenderId": "228813449606",
   "measurementId": "",
-  "oAuthClientId": "228813449606-3sm0pk53ejhm6rqd4mtlf9h5q7meli5v.apps.googleusercontent.com"
+  "oAuthClientId": "228813449606-3sm0pk53ejhm6rqd4mtlf9h5q7meli5v.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

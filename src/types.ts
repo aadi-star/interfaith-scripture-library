@@ -25,6 +25,8 @@ export interface ScriptureBook {
   description: string;
   divisionsName: string; // "Chapter", "Surah", "Kanda", etc.
   divisionsCount: number;
+  hierarchy_type?: string;
+  branches?: string[];
   featuredPortions: {
     name: string;
     reference: string;

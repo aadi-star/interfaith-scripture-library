@@ -2,7 +2,25 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if request.auth != null && request.auth.token.email == "adarshshuklagarg@gmail.com";
+    }
+    
+    // Public read for scriptures and verses
+    match /scriptures/{bookId} {
+      allow read: if true;
+      match /verses/{verseId} {
+        allow read: if true;
+      }
+    }
+    match /verses/{verseId} {
+      allow read: if true;
+    }
+    
+    // Public read for custom Holy Scripture Books collection and all nested subcollections
+    // (including Bhagavad Gita, Rigveda (ऋग्वेद), Ramayana (रामायणम्), Mahabharata (महाभारतम्), Yajurveda (यजुर्वेदः), and Mahapuranas (महापुराणाणि) with all puranas, samhitas, chapters, and verses)
+    match /{colId}/{document=**} {
+      allow read: if colId == "Holy Scripture Books" || colId == "books" || colId == "scriptures" || colId == "Mahapuranas (महापुराणाणि)" || colId == "Mahapuranas";
+      allow write: if false;
     }
     
     // Primitive helpers

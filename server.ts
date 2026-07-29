@@ -3,6 +3,99 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { initializeApp, getApps, applicationDefault, App } from "firebase-admin/app";
+import { getFirestore, Firestore } from "firebase-admin/firestore";
+import { GoogleAuth } from "google-auth-library";
+
+let adminAppInstance: App | null = null;
+let adminDbInstance: Firestore | null = null;
+
+export function getAdminApp(): App {
+  if (!adminAppInstance) {
+    try {
+      const apps = getApps();
+      if (apps.length === 0) {
+        adminAppInstance = initializeApp({
+          credential: applicationDefault()
+        });
+      } else {
+        adminAppInstance = apps[0];
+      }
+    } catch (error: any) {
+      console.warn("Firebase Admin App lazy-init warning/bypass:", error.message);
+      throw new Error(`Firebase Admin App is not initialized. Ensure Application Default Credentials (ADC) are configured. Details: ${error.message}`);
+    }
+  }
+  return adminAppInstance;
+}
+
+// Single, cached adminDb instance routing to 'interfaith-108'
+export const adminDb = (() => {
+  try {
+    const appInstance = getAdminApp();
+    return getFirestore(appInstance, "interfaith-108");
+  } catch (error: any) {
+    console.warn("Firebase Admin Firestore cached instance creation failed:", error.message);
+    // Return a proxy/lazy getter or null, but since it is called on server startup with valid ADC, this runs successfully.
+    // To make it fully robust and avoid module-load crashes if credentials are missing during local build, we can resolve lazily
+    return null as unknown as Firestore;
+  }
+})();
+
+export function getAdminDb(): Firestore {
+  if (adminDbInstance) {
+    return adminDbInstance;
+  }
+  if (adminDb) {
+    adminDbInstance = adminDb;
+    return adminDbInstance;
+  }
+  // Fallback lazy initialization if early-load returned null
+  try {
+    const appInstance = getAdminApp();
+    adminDbInstance = getFirestore(appInstance, "interfaith-108");
+    return adminDbInstance;
+  } catch (error: any) {
+    throw new Error(`Firebase Admin Firestore is not initialized. Details: ${error.message}`);
+  }
+}
+
+/**
+ * Diagnostic helper to verify local environment's Application Default Credentials (ADC) configuration.
+ */
+export async function getAdcInfo() {
+  const auth = new GoogleAuth();
+  let projectId = "";
+  try {
+    projectId = await auth.getProjectId();
+  } catch (err: any) {
+    projectId = `Error fetching project ID: ${err.message}`;
+  }
+
+  const envVars = {
+    GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS ? `Present (${process.env.GOOGLE_APPLICATION_CREDENTIALS})` : "Not set",
+    GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT || "Not set",
+    GCLOUD_PROJECT: process.env.GCLOUD_PROJECT || "Not set",
+    FIREBASE_CONFIG: process.env.FIREBASE_CONFIG ? "Present" : "Not set",
+    NODE_ENV: process.env.NODE_ENV || "Not set",
+  };
+
+  let credentialSource = "Unknown";
+  try {
+    const client = await auth.getClient();
+    credentialSource = client.constructor.name || typeof client;
+  } catch (err: any) {
+    credentialSource = `Error resolving client: ${err.message}`;
+  }
+
+  return {
+    projectId,
+    credentialSource,
+    envVars,
+    isLocalEnv: !process.env.K_SERVICE, // True if not running inside Google Cloud Run/Hosting compute environment
+  };
+}
+
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -2991,6 +3084,35 @@ app.get("/api/config", (req, res) => {
   });
 });
 
+// Firebase Admin stats endpoint (ADC mode)
+app.get("/api/admin/stats", async (req, res) => {
+  try {
+    const db = getAdminDb();
+    const snapshot = await db.collection("user_custom_images").count().get();
+    res.json({ totalImages: snapshot.data().count });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ADC configuration debugging endpoint
+app.get("/api/admin/debug-adc", async (req, res) => {
+  try {
+    const adcInfo = await getAdcInfo();
+    res.json({
+      status: "success",
+      message: "Application Default Credentials (ADC) parsed diagnostic data.",
+      adcInfo
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: "error",
+      message: "Failed to parse ADC configuration.",
+      error: error.message
+    });
+  }
+});
+
 // Helper to safely preserve percent escaped sequences while replacing regular spaces and ampersands
 function safeEncodeUrl(urlStr: string): string {
   if (!urlStr) return "";
@@ -5837,6 +5959,23 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[Interfaith Scripture Library Server] running on http://0.0.0.0:${PORT}`);
+    
+    // Asynchronously log ADC diagnostic information on startup
+    getAdcInfo().then((info) => {
+      console.log("=== Firebase Admin ADC Startup Diagnostics ===");
+      console.log(`  Project ID:        ${info.projectId}`);
+      console.log(`  Credential Source: ${info.credentialSource}`);
+      console.log(`  Local Environment: ${info.isLocalEnv}`);
+      console.log("  Relevant Environment Variables:");
+      Object.entries(info.envVars).forEach(([key, val]) => {
+        console.log(`    ${key}: ${val}`);
+      });
+      console.log("==============================================");
+    }).catch((err) => {
+      console.error("=== Error obtaining Firebase Admin ADC Diagnostics ===");
+      console.error(err.message);
+      console.log("==============================================");
+    });
   });
 }
 

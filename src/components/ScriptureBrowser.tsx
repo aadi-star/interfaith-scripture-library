@@ -3,12 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { SCRIPTURE_BOOKS, RELIGION_LABELS, RELIGION_COLORS } from "../scripturesRegistry";
 import { ScriptureBook, ReligionType } from "../types";
-import { Star, BookOpen, Compass, Sparkles, Headphones, Search, X, Calendar, ArrowRight } from "lucide-react";
+import { Star, BookOpen, Compass, Sparkles, Headphones, Search, X, Calendar, ArrowRight, Layers, FolderTree, Loader2 } from "lucide-react";
 import WordOfTheDayComponent from "./WordOfTheDay";
 import { ReligiousIcon } from "./ReligiousIcon";
+import { GitaFirestoreView } from "./GitaFirestoreView";
+import { DynamicCanonNavigator } from "./DynamicCanonNavigator";
+import { fetchMasterCanonsAndRoute, MasterCanonBook } from "../firebase";
 
 // Canonical list of the 66 books of the Christian Bible with their chapter counts and common aliases/abbreviations
 interface BibleBookMeta {
@@ -487,9 +490,50 @@ export default function ScriptureBrowser({
   const [searchQuery, setSearchQuery] = useState("");
   const [lightboxBook, setLightboxBook] = useState<ScriptureBook | null>(null);
 
+  // Dynamic Master Canons state from Firestore (interfaith-108)
+  const [masterCanons, setMasterCanons] = useState<MasterCanonBook[]>([]);
+  const [activeDynamicBook, setActiveDynamicBook] = useState<MasterCanonBook | null>(null);
+  const [loadingCanons, setLoadingCanons] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadMasterCanons() {
+      setLoadingCanons(true);
+      try {
+        const res = await fetchMasterCanonsAndRoute();
+        if (isMounted && res && res.allCanons) {
+          setMasterCanons(res.allCanons);
+        }
+      } catch (err) {
+        console.warn("Notice: Could not load master canons from Firestore:", err);
+      } finally {
+        if (isMounted) setLoadingCanons(false);
+      }
+    }
+    loadMasterCanons();
+    return () => { isMounted = false; };
+  }, []);
+
   // States for the newly added Bible chapters and verses Quick Jump shortcut
   const [bibleReference, setBibleReference] = useState("");
   const [bibleError, setBibleError] = useState("");
+  const [selectedFirestoreBook, setSelectedFirestoreBook] = useState<"bhagavad_gita" | "rigveda" | "ramayana" | "mahabharata" | "yajurveda" | "mahapuranas">("bhagavad_gita");
+
+  const handleSelectBookAction = (book: ScriptureBook, portionRef?: string, isAudioMode?: boolean) => {
+  const isYajur = book.key.includes("yajurveda") || book.title.toLowerCase().includes("yajurveda");
+  const isPurana = book.key.includes("purana") || book.title.toLowerCase().includes("purana") || book.key === "mahapuranas";
+  if (isYajur || isPurana || ["bhagavad_gita","rigveda","ramayana","mahabharata","mahapuranas"].includes(book.key)) {
+    setSelectedFirestoreBook(isYajur ? "yajurveda" : isPurana ? "mahapuranas" : book.key as any);
+  }
+
+  const liveData = masterCanons.find(mc => mc.key === book.key);
+  const isMultiTier = liveData?.hierarchy_type === "multi_tier" || liveData?.hierarchy_type === "kandas_prashanas";
+  if (isMultiTier && liveData) {
+    setActiveDynamicBook(liveData);
+  }
+
+  onSelectBook(book, portionRef, isAudioMode);
+};
 
   const handleBibleJump = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -640,14 +684,14 @@ export default function ScriptureBrowser({
                     <div className="flex items-center gap-1.5">
                       <button
                         id={`shelf-open-${book.key}`}
-                        onClick={() => onSelectBook(book)}
+                        onClick={() => handleSelectBookAction(book)}
                         className="text-[9px] font-mono font-bold bg-amber-500 hover:bg-amber-400 text-black px-2 py-0.5 rounded transition-all cursor-pointer"
                       >
                         Read
                       </button>
                       <button
                         id={`shelf-audio-${book.key}`}
-                        onClick={() => onSelectBook(book, undefined, true)}
+                        onClick={() => handleSelectBookAction(book, undefined, true)}
                         className="text-[9px] font-mono font-bold bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black px-2 py-0.5 rounded transition-all cursor-pointer border border-emerald-500/20 hover:border-transparent"
                       >
                         Listen
@@ -801,6 +845,101 @@ export default function ScriptureBrowser({
         </div>
       </div>
 
+      {/* DYNAMIC CANON NAVIGATOR OVERLAY FOR MULTI-TIER BOOKS */}
+      {activeDynamicBook && (
+        <div className="mb-8">
+          <DynamicCanonNavigator
+            book={activeDynamicBook}
+            onClose={() => setActiveDynamicBook(null)}
+          />
+        </div>
+      )}
+
+      {/* FIRESTORE SCRIPTURE VIEWER (BHAGAVAD GITA, YAJURVEDA, RIGVEDA, RAMAYANA, MAHABHARATA) */}
+      {(selectedReligion === "hinduism" || selectedReligion === "all") && (
+        <GitaFirestoreView 
+          selectedBook={selectedFirestoreBook}
+          onSelectBook={setSelectedFirestoreBook}
+          onReadInDesk={(bookKey, divNum) => {
+            const baseBook = SCRIPTURE_BOOKS.find(b => b.key === bookKey);
+            if (baseBook) {
+              onSelectBook(baseBook, String(divNum));
+            }
+          }}
+        />
+      )}
+
+      {/* ALL CANONS MASTER REGISTRY (DYNAMIC FIRESTORE SCHEMAS) */}
+      {selectedReligion === "all" && masterCanons.length > 0 && (
+        <div className="bg-[#0e0e14] border border-amber-500/20 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4 my-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-500/10 border border-amber-500/25 rounded-xl text-amber-400">
+                <FolderTree className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-serif font-bold text-white flex items-center gap-2">
+                  <span>All Canons Master Registry</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold uppercase">
+                    Firestore interfaith-108
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Metadata-driven hierarchy navigation across all traditions (flat chapters, 2-tier, and 3-tier Kandas & Prashanas).
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {masterCanons.map((mc) => {
+              const hType = mc.hierarchy_type || "chapters";
+              const isMultiTier = hType === "kandas_prashanas" || hType === "multi_tier" || (mc.branches && mc.branches.length > 0);
+              return (
+                <div
+                  key={mc.id}
+                  onClick={() => {
+                    const isYajur = mc.key.includes("yajurveda") || mc.title.toLowerCase().includes("yajurveda");
+                    const isPurana = mc.key.includes("purana") || mc.title.toLowerCase().includes("purana") || mc.key === "mahapuranas";
+                    if (isYajur) {
+                      setSelectedFirestoreBook("yajurveda");
+                    } else if (isPurana) {
+                      setSelectedFirestoreBook("mahapuranas");
+                    }
+                    setActiveDynamicBook(mc);
+                  }}
+                  className="p-3.5 bg-white/[0.03] hover:bg-white/[0.07] border border-white/10 hover:border-amber-500/40 rounded-xl transition-all cursor-pointer flex flex-col justify-between group"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                      <span className="uppercase text-amber-400 font-bold">{mc.religion}</span>
+                      <span className={`px-2 py-0.5 rounded uppercase font-bold text-[9px] ${
+                        isMultiTier ? "bg-purple-500/15 text-purple-300 border border-purple-500/30" : "bg-blue-500/15 text-blue-300 border border-blue-500/30"
+                      }`}>
+                        {isMultiTier ? "Kandas & Prashanas" : hType}
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-serif font-bold text-slate-100 group-hover:text-amber-300 transition-colors">
+                      {mc.title}
+                    </h4>
+                    {mc.branches && mc.branches.length > 0 && (
+                      <div className="text-[11px] text-amber-400/80 font-mono flex items-center gap-1">
+                        <Layers className="w-3 h-3 text-amber-400" />
+                        <span>Branches: {mc.branches.join(", ")}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[11px] font-mono text-slate-400 group-hover:text-amber-300">
+                    <span>Explore Canon Tree</span>
+                    <ArrowRight className="w-3.5 h-3.5 transform group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Books Display Grid or Empty State */}
       {filteredBooks.length === 0 ? (
         <div className="py-16 text-center bg-white/[0.01] border border-dashed border-white/10 rounded-2xl">
@@ -824,6 +963,9 @@ export default function ScriptureBrowser({
         {filteredBooks.map((book) => {
           const bookImg = resolveBookImage(book);
           const isBookmarked = favorites ? favorites.some((f) => f.itemKey === book.key) : false;
+          const liveData = masterCanons.find(mc => mc.key === book.key);
+          const displayCount = liveData?.chapterCount ?? book.divisionsCount;
+          const displayDivisionName = liveData ? "Chapter" : book.divisionsName;
           return (
             <div
               id={`book-card-${book.key}`}
@@ -883,13 +1025,13 @@ export default function ScriptureBrowser({
                       <span>{RELIGION_LABELS[book.religion]}</span>
                     </span>
                     <span className="text-xs text-slate-400 font-mono">
-                      {book.divisionsCount} {book.divisionsName}s
+                      {displayCount} {displayDivisionName}s
                     </span>
                   </div>
 
                   {/* Title */}
                   <div>
-                    <h3 className="text-xl sm:text-2xl font-serif font-bold text-white group-hover:text-amber-400 transition-colors inline-flex items-center gap-2.5">
+                    <h3 className={`text-xl sm:text-2xl font-serif font-bold text-white group-hover:text-amber-400 transition-colors inline-flex items-center gap-2.5 ${/[\u0900-\u097F]/.test(book.title) ? "leading-relaxed" : "leading-snug"}`}>
                       <ReligiousIcon bookKey={book.key} religion={book.religion} className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" />
                       <span>{book.title}</span>
                     </h3>
@@ -918,7 +1060,7 @@ export default function ScriptureBrowser({
                           <button
                             id={`suggested-btn-${book.key}-${idx}`}
                             key={idx}
-                            onClick={() => onSelectBook(book, portion.reference)}
+                            onClick={() => handleSelectBookAction(book, portion.reference)}
                             className="w-full text-left p-2.5 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10 transition-colors block group cursor-pointer"
                           >
                             <div className="font-medium text-slate-200 flex items-center justify-between group-hover:text-amber-300">
@@ -946,7 +1088,7 @@ export default function ScriptureBrowser({
                   <div className="flex items-center gap-2">
                     <button
                       id={`audio-btn-${book.key}`}
-                      onClick={() => onSelectBook(book, undefined, true)}
+                      onClick={() => handleSelectBookAction(book, undefined, true)}
                       className="px-3 py-2 rounded-lg text-xs font-semibold shadow-sm flex items-center space-x-1.5 cursor-pointer transition-all bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
                       title="Listen in Audio Mode"
                     >
@@ -955,7 +1097,7 @@ export default function ScriptureBrowser({
                     </button>
                     <button
                       id={`read-btn-${book.key}`}
-                      onClick={() => onSelectBook(book)}
+                      onClick={() => handleSelectBookAction(book)}
                       className="px-4 py-2 rounded-lg text-xs font-semibold shadow-md flex items-center space-x-1 cursor-pointer transition-all bg-amber-500 text-black hover:bg-amber-400 hover:shadow-amber-500/10"
                     >
                       <BookOpen className="w-3.5 h-3.5" />
@@ -1053,7 +1195,7 @@ export default function ScriptureBrowser({
 
                 <button
                   onClick={() => {
-                    onSelectBook(lightboxBook, undefined, true);
+                    handleSelectBookAction(lightboxBook, undefined, true);
                     setLightboxBook(null);
                   }}
                   className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/25 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
@@ -1063,7 +1205,7 @@ export default function ScriptureBrowser({
                 </button>
                 <button
                   onClick={() => {
-                    onSelectBook(lightboxBook);
+                    handleSelectBookAction(lightboxBook);
                     setLightboxBook(null);
                   }}
                   className="bg-amber-500 hover:bg-amber-400 text-black px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-lg transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
