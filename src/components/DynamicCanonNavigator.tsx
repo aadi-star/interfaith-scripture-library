@@ -13,7 +13,7 @@ import {
   Book,
   Compass
 } from "lucide-react";
-import { db } from "../firebase";
+import { db, safeGetDocs, safeGetDoc } from "../firebase";
 import { collection, doc, getDocs, query, orderBy } from "firebase/firestore";
 import { YajurvedaDropdownSelector } from "./YajurvedaDropdownSelector";
 
@@ -124,6 +124,22 @@ export const DynamicCanonNavigator: React.FC<DynamicCanonNavigatorProps> = ({ bo
       try {
         const bookKeyClean = (book.key || book.id || bookTitle).toLowerCase().replace(/[^a-z0-9]/g, "_");
         const candidatePaths = [
+          collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)", bookTitle, "skandhas"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)", bookTitle, "Skandhas"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)", bookTitle, "samhitas"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)", bookTitle, "Samhitas"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)", bookTitle, "cantos"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)", bookTitle, "Cantos"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)", bookTitle, "chapters"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)", bookTitle, "Chapters"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)", bookTitle, "skandhas"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)", bookTitle, "Skandhas"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)", bookTitle, "samhitas"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)", bookTitle, "Samhitas"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)", bookTitle, "cantos"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)", bookTitle, "Cantos"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)", bookTitle, "chapters"),
+          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)", bookTitle, "Chapters"),
           collection(db, "Holy Scripture Books", "Hinduism", "Yajurveda (यजुर्वेदः)", selectedBranch, selectedBranch === "krishna" ? "kandas" : "chapters"),
           collection(db, "Holy Scripture Books", "Hinduism", "Yajurveda (यजुर्वेदः)", selectedBranch, "kandas"),
           collection(db, "Holy Scripture Books", "Hinduism", "Yajurveda (यजुर्वेदः)", selectedBranch, "chapters"),
@@ -139,15 +155,15 @@ export const DynamicCanonNavigator: React.FC<DynamicCanonNavigatorProps> = ({ bo
           try {
             let snap;
             try {
-              snap = await getDocs(query(colRef, orderBy("number", "asc")));
+              snap = await safeGetDocs(query(colRef, orderBy("number", "asc")));
             } catch {
               try {
-                snap = await getDocs(query(colRef, orderBy("kanda_number", "asc")));
+                snap = await safeGetDocs(query(colRef, orderBy("kanda_number", "asc")));
               } catch {
                 try {
-                  snap = await getDocs(query(colRef, orderBy("chapter_number", "asc")));
+                  snap = await safeGetDocs(query(colRef, orderBy("chapter_number", "asc")));
                 } catch {
-                  snap = await getDocs(colRef);
+                  snap = await safeGetDocs(colRef);
                 }
               }
             }
@@ -247,7 +263,7 @@ export const DynamicCanonNavigator: React.FC<DynamicCanonNavigatorProps> = ({ bo
       }
 
       try {
-        const subcolCandidates = ["prashanas", "prashnas", "subdivisions", "sections", "adhyayas"];
+        const subcolCandidates = ["chapters", "Chapters", "prashanas", "prashnas", "subdivisions", "sections", "adhyayas", "cantos", "Cantos", "skandhas", "Skandhas", "samhitas", "Samhitas"];
         let foundSnap: any = null;
 
         for (const subName of subcolCandidates) {
@@ -255,12 +271,16 @@ export const DynamicCanonNavigator: React.FC<DynamicCanonNavigatorProps> = ({ bo
             const subRef = collection(selectedTier1.docRef, subName);
             let snap;
             try {
-              snap = await getDocs(query(subRef, orderBy("prashana_number", "asc")));
+              snap = await safeGetDocs(query(subRef, orderBy("chapter_number", "asc")));
             } catch {
               try {
-                snap = await getDocs(query(subRef, orderBy("prashna_number", "asc")));
+                snap = await safeGetDocs(query(subRef, orderBy("prashana_number", "asc")));
               } catch {
-                snap = await getDocs(subRef);
+                try {
+                  snap = await safeGetDocs(query(subRef, orderBy("prashna_number", "asc")));
+                } catch {
+                  snap = await safeGetDocs(subRef);
+                }
               }
             }
 
@@ -277,9 +297,9 @@ export const DynamicCanonNavigator: React.FC<DynamicCanonNavigatorProps> = ({ bo
           const nodes: TierNode[] = foundSnap.docs.map((d: any, idx: number) => {
             const data = d.data();
             const num = Number(
-              (data.prashana_number ?? data.prashanaNumber ?? data.prashna_number ?? data.prashnaNumber ?? data.number ?? String(d.id).replace(/[^0-9]/g, "")) || (idx + 1)
+              (data.chapter_number ?? data.chapterNumber ?? data.prashana_number ?? data.prashanaNumber ?? data.prashna_number ?? data.prashnaNumber ?? data.number ?? String(d.id).replace(/[^0-9]/g, "")) || (idx + 1)
             );
-            const label = String(data.title ?? data.name ?? `${getTier2Label()} ${num}`);
+            const label = String(data.chapter_title ?? data.title ?? data.name ?? `${getTier2Label()} ${num}`);
             return {
               id: d.id,
               label,
@@ -374,9 +394,9 @@ export const DynamicCanonNavigator: React.FC<DynamicCanonNavigatorProps> = ({ bo
         const vColRef = collection(activeParentRef, "verses");
         let snap;
         try {
-          snap = await getDocs(query(vColRef, orderBy("verse_number", "asc")));
+          snap = await safeGetDocs(query(vColRef, orderBy("verse_number", "asc")));
         } catch {
-          snap = await getDocs(vColRef);
+          snap = await safeGetDocs(vColRef);
         }
 
         if (snap && !snap.empty && isMounted) {

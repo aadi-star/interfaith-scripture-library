@@ -118,8 +118,8 @@ export const ManageBookmarksDrawer: React.FC<ManageBookmarksDrawerProps> = ({
                 </div>
               </div>
             ) : (
-              favorites.map((fav) => {
-                const identifier = fav.id || fav.itemKey;
+              favorites.map((fav, index) => {
+                const identifier = fav.id ? fav.id : `${fav.itemKey}_${index}`;
                 const isEditing = editingId === identifier;
                 const isSaving = savingId === identifier;
 
@@ -128,7 +128,7 @@ export const ManageBookmarksDrawer: React.FC<ManageBookmarksDrawerProps> = ({
 
                 return (
                   <div
-                    id={`bookmark-manage-item-${fav.itemKey}`}
+                    id={`bookmark-manage-item-${fav.itemKey}-${index}`}
                     key={identifier}
                     className="p-4 bg-white/[0.02] border border-white/5 hover:border-white/10 rounded-xl transition-all duration-200 flex flex-col gap-3 group relative shadow-md"
                   >

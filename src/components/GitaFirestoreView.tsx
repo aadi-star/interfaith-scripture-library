@@ -4,11 +4,12 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { collection, getDocs, doc, getDoc, query, orderBy } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, onSnapshot, getDocs, doc, getDoc, query, orderBy } from "firebase/firestore";
+import { db, safeGetDocs, safeGetDoc, checkIsQuotaExhausted } from "../firebase";
 import { motion, AnimatePresence } from "motion/react";
-import { BookOpen, ChevronLeft, Loader2, Sparkles, AlertCircle, Book, Calendar } from "lucide-react";
+import { BookOpen, ChevronLeft, Loader2, Sparkles, AlertCircle, Book, Calendar, Languages } from "lucide-react";
 import { YajurvedaDropdownSelector } from "./YajurvedaDropdownSelector";
+import { UPANISHADS_108 } from "../data/upanishads";
 
 interface ChapterData {
   id: string;
@@ -48,7 +49,35 @@ function formatChapterTitle(rawTitle: string): string {
   return rawTitle;
 }
 
-export type ScriptureBookSelection = "bhagavad_gita" | "rigveda" | "ramayana" | "mahabharata" | "yajurveda" | "mahapuranas";
+function extractVerseText(d: any): string {
+  if (!d) return "";
+  const val = d.text ?? d.text_content ?? d.cleanText ?? d.text_clean ?? d.text_with_svara ?? d.text_svara ?? 
+    d.originalText ?? d.original_text ?? d.sanskrit ?? d.sanskrit_text ?? d.sanskritText ?? d.sloka ?? d.shloka ?? 
+    d.sloka_text ?? d.shloka_text ?? d.slokaText ?? d.shlokaText ?? d.devanagari ?? d.devanagari_text ?? d.devanagariText ?? 
+    d.mantra ?? d.mantra_text ?? d.mantraText ?? d.samhita ?? d.samhita_text ?? d.richa ?? d.rc ?? d.rik ?? 
+    d.padapatha ?? d.pada ?? d.sukta_text ?? d.verse_text ?? d.verseText ?? d.verse_sanskrit ?? d.verse_devanagari ?? 
+    d.verse ?? d.content ?? d.verse_content ?? d.body ?? d.lines ?? d.translation ?? d.english ?? d.hindi ?? 
+    d.meaning ?? d.description ?? d.original ?? d.raw ?? d.verse_english ?? d.verse_translation ?? d.anvaya ?? d.commentary ?? "";
+  
+  if (typeof val === "string") return val.trim();
+  if (Array.isArray(val)) {
+    return val.map((item: any) => typeof item === "string" ? item : (item?.text || item?.devanagari || item?.sanskrit || item?.originalText || item?.sloka || item?.shloka || item?.translation || JSON.stringify(item))).join("\n");
+  }
+  if (typeof val === "object") {
+    return val.text || val.devanagari || val.sanskrit || val.originalText || val.cleanText || val.sloka || val.shloka || val.mantra || val.translation || val.content || JSON.stringify(val);
+  }
+  return String(val);
+}
+
+function extractTransliteration(d: any): string {
+  if (!d) return "";
+  const val = d.itx ?? d.transliteration ?? d.translit ?? d.phonetic ?? d.roman ?? d.iast ?? d.iast_text ?? d.english_transliteration ?? "";
+  if (typeof val === "string") return val.trim();
+  if (Array.isArray(val)) return val.join("\n");
+  return String(val);
+}
+
+export type ScriptureBookSelection = "bhagavad_gita" | "rigveda" | "ramayana" | "mahabharata" | "yajurveda" | "samaveda" | "atharvaveda" | "mahapuranas" | "upapuranas" | "upanishads";
 
 interface GitaFirestoreViewProps {
   selectedBook?: ScriptureBookSelection;
@@ -68,6 +97,16 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
     }
   };
 
+const [dataVersion, setDataVersion] = useState<number>(0);
+
+useEffect(() => {
+  const ref = doc(db, "system_settings", "data_version");
+  const unsubscribe = onSnapshot(ref, () => {
+    setDataVersion(v => v + 1); // bump a counter whenever the marker changes
+  });
+  return () => unsubscribe();
+}, []);
+
   const [yajurvedaBranch, setYajurvedaBranch] = useState<"shukla" | "krishna">("shukla");
   const [branchLabels, setBranchLabels] = useState<{ shukla: string; krishna: string }>({
     shukla: "Shukla (White)",
@@ -79,14 +118,14 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
       const fetchBranchLabels = async () => {
         try {
           const shuklaRef = doc(db, "Holy Scripture Books", "Hinduism", "Yajurveda (यजुर्वेदः)", "shukla");
-          const shuklaSnap = await getDoc(shuklaRef);
+          const shuklaSnap = await safeGetDoc(shuklaRef);
           let sLabel = "Shukla (White)";
           if (shuklaSnap.exists() && shuklaSnap.data()?.branch_name) {
             sLabel = String(shuklaSnap.data().branch_name);
           }
 
           const krishnaRef = doc(db, "Holy Scripture Books", "Hinduism", "Yajurveda (यजुर्वेदः)", "krishna");
-          const krishnaSnap = await getDoc(krishnaRef);
+          const krishnaSnap = await safeGetDoc(krishnaRef);
           let kLabel = "Krishna (Black)";
           if (krishnaSnap.exists() && krishnaSnap.data()?.branch_name) {
             kLabel = String(krishnaSnap.data().branch_name);
@@ -105,10 +144,12 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
     if (book === "bhagavad_gita") return capitalized ? "Chapter" : "chapter";
     if (book === "rigveda") return capitalized ? "Mandala" : "mandala";
     if (book === "mahabharata") return capitalized ? "Parva" : "parva";
+    if (book === "samaveda" || book === "atharvaveda") return capitalized ? "Chapter" : "chapter";
     if (book === "yajurveda") {
       return yajurvedaBranch === "shukla" ? (capitalized ? "Chapter" : "chapter") : (capitalized ? "Kanda" : "kanda");
     }
-    if (book === "mahapuranas") return capitalized ? "Purana" : "purana";
+    if (book === "mahapuranas" || book === "upapuranas") return capitalized ? "Purana" : "purana";
+    if (book === "upanishads") return capitalized ? "Upanishad" : "upanishad";
     return capitalized ? "Kanda" : "kanda";
   };
 
@@ -116,33 +157,58 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
     if (book === "bhagavad_gita") return "Chapters";
     if (book === "rigveda") return "Mandalas";
     if (book === "mahabharata") return "Parvas";
+    if (book === "samaveda" || book === "atharvaveda") return "Chapters";
     if (book === "yajurveda") {
       return yajurvedaBranch === "shukla" ? "Chapters" : "Kandas";
     }
     if (book === "mahapuranas") return "Mahapuranas";
+    if (book === "upapuranas") return "Upapuranas";
+    if (book === "upanishads") return "Upanishads";
     return "Kandas";
   };
 
   const getSubdivisionName = (book: ScriptureBookSelection, capitalized = false) => {
     if (book === "mahabharata") return capitalized ? "Adhyaya" : "adhyaya";
-    if (book === "yajurveda") return capitalized ? "Prashna" : "prashna";
-    if (book === "mahapuranas") {
-      if (selectedDivision?.id?.toLowerCase().includes("shiva") || selectedDivision?.chapter_title?.toLowerCase().includes("shiva")) {
+    if (book === "yajurveda") {
+      return yajurvedaBranch === "krishna" ? (capitalized ? "Prashna" : "prashna") : (capitalized ? "Anuvaka" : "anuvaka");
+    }
+    if (book === "rigveda") return capitalized ? "Sukta" : "sukta";
+    if (book === "samaveda") return capitalized ? "Sukta / Pada" : "sukta / pada";
+    if (book === "atharvaveda") return capitalized ? "Sukta / Hymn" : "sukta / hymn";
+    if (book === "bhagavad_gita") return capitalized ? "Section" : "section";
+    if (book === "upanishads") return capitalized ? "Chapter" : "chapter";
+    if (book === "mahapuranas" || book === "upapuranas") {
+      const titleLower = (selectedDivision?.chapter_title || selectedDivision?.id || "").toLowerCase();
+      if (titleLower.includes("shiva") || titleLower.includes("शिव")) {
         return capitalized ? "Samhita" : "samhita";
       }
-      return capitalized ? "Chapter" : "chapter";
+      if (titleLower.includes("bhagavata") || titleLower.includes("भागवत")) {
+        return capitalized ? "Skandha" : "skandha";
+      }
+      return capitalized ? "Sub-division" : "sub-division";
     }
     return capitalized ? "Sarga" : "sarga";
   };
 
   const getSubdivisionNamePlural = (book: ScriptureBookSelection) => {
     if (book === "mahabharata") return "Adhyayas";
-    if (book === "yajurveda") return "Prashnas";
-    if (book === "mahapuranas") {
-      if (selectedDivision?.id?.toLowerCase().includes("shiva") || selectedDivision?.chapter_title?.toLowerCase().includes("shiva")) {
+    if (book === "yajurveda") {
+      return yajurvedaBranch === "krishna" ? "Prashnas" : "Anuvakas";
+    }
+    if (book === "rigveda") return "Suktas";
+    if (book === "samaveda") return "Suktas / Padas";
+    if (book === "atharvaveda") return "Suktas / Hymns";
+    if (book === "bhagavad_gita") return "Sections";
+    if (book === "upanishads") return "Chapters";
+    if (book === "mahapuranas" || book === "upapuranas") {
+      const titleLower = (selectedDivision?.chapter_title || selectedDivision?.id || "").toLowerCase();
+      if (titleLower.includes("shiva") || titleLower.includes("शिव")) {
         return "Samhitas";
       }
-      return "Chapters";
+      if (titleLower.includes("bhagavata") || titleLower.includes("भागवत")) {
+        return "Skandhas";
+      }
+      return "Sub-divisions";
     }
     return "Sargas";
   };
@@ -180,10 +246,10 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             let snap;
             try {
               const q = query(directColRef, orderBy("chapter_number", "asc"));
-              snap = await getDocs(q);
+              snap = await safeGetDocs(q);
             } catch (queryErr) {
               console.warn("[Gita Firestore] Failed reading chapter list with orderBy, trying unordered fallback:", queryErr);
-              snap = await getDocs(directColRef);
+              snap = await safeGetDocs(directColRef);
             }
             
             if (snap.empty) {
@@ -191,10 +257,10 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
               directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Bhagavad Gita (श्रीमद्भगवद्गीता)");
               try {
                 const q = query(directColRef, orderBy("chapter_number", "asc"));
-                snap = await getDocs(q);
+                snap = await safeGetDocs(q);
               } catch (queryErr) {
                 console.warn("[Gita Firestore] Failed fallback with orderBy, trying unordered:", queryErr);
-                snap = await getDocs(directColRef);
+                snap = await safeGetDocs(directColRef);
               }
             }
 
@@ -223,7 +289,7 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
               for (const subcol of subcolNames) {
                 try {
                   const colRef = collection(db, "Holy Scripture Books", bookId, subcol);
-                  const snap = await getDocs(colRef);
+                  const snap = await safeGetDocs(colRef);
                   if (!snap.empty) {
                     const tempChapters = snap.docs.map(docSnap => {
                       const d = docSnap.data();
@@ -251,7 +317,7 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
           // Fallback strategy 3
           if (divisionsFound.length === 0) {
             const rootColRef = collection(db, "Holy Scripture Books");
-            const snap = await getDocs(rootColRef);
+            const snap = await safeGetDocs(rootColRef);
             if (!snap.empty) {
               const tempChapters = snap.docs.map(docSnap => {
                 const d = docSnap.data();
@@ -272,7 +338,7 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
           // Fallback strategy 4
           if (divisionsFound.length === 0) {
             const fallbackColRef = collection(db, "scriptures", "bhagavad_gita", "chapters");
-            const snap = await getDocs(fallbackColRef);
+            const snap = await safeGetDocs(fallbackColRef);
             if (!snap.empty) {
               divisionsFound = snap.docs.map(docSnap => {
                 const d = docSnap.data();
@@ -300,10 +366,10 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             try {
               // ordered ascending by mandal_number
               const q = query(directColRef, orderBy("mandal_number", "asc"));
-              snap = await getDocs(q);
+              snap = await safeGetDocs(q);
             } catch (queryErr) {
               console.warn("[Gita Firestore] Failed reading Rigveda mandals with orderBy, trying unordered:", queryErr);
-              snap = await getDocs(directColRef);
+              snap = await safeGetDocs(directColRef);
             }
 
             if (snap.empty) {
@@ -311,9 +377,9 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
               directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Rigveda");
               try {
                 const q = query(directColRef, orderBy("mandal_number", "asc"));
-                snap = await getDocs(q);
+                snap = await safeGetDocs(q);
               } catch (queryErr) {
-                snap = await getDocs(directColRef);
+                snap = await safeGetDocs(directColRef);
               }
             }
 
@@ -345,14 +411,14 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             let snap;
             try {
               const q = query(directColRef, orderBy("parva_number", "asc"));
-              snap = await getDocs(q);
+              snap = await safeGetDocs(q);
             } catch (queryErr) {
               try {
                 const q = query(directColRef, orderBy("chapter_number", "asc"));
-                snap = await getDocs(q);
+                snap = await safeGetDocs(q);
               } catch (queryErr2) {
                 console.warn("[Gita Firestore] Failed reading Mahabharata parvas with orderBy, trying unordered:", queryErr2);
-                snap = await getDocs(directColRef);
+                snap = await safeGetDocs(directColRef);
               }
             }
 
@@ -361,9 +427,9 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
               directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Mahabharata");
               try {
                 const q = query(directColRef, orderBy("parva_number", "asc"));
-                snap = await getDocs(q);
+                snap = await safeGetDocs(q);
               } catch (queryErr) {
-                snap = await getDocs(directColRef);
+                snap = await safeGetDocs(directColRef);
               }
             }
 
@@ -396,9 +462,9 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
               const chaptersColRef = collection(shuklaDocRef, "chapters");
               let chapSnap;
               try {
-                chapSnap = await getDocs(query(chaptersColRef, orderBy("chapter_number", "asc")));
+                chapSnap = await safeGetDocs(query(chaptersColRef, orderBy("chapter_number", "asc")));
               } catch (e) {
-                chapSnap = await getDocs(chaptersColRef);
+                chapSnap = await safeGetDocs(chaptersColRef);
               }
 
               if (!chapSnap.empty) {
@@ -424,10 +490,10 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
                 const kandasColRef = collection(krishnaDocRef, "kandas");
                 let kandaSnap;
                 try {
-                  kandaSnap = await getDocs(query(kandasColRef, orderBy("kanda_number", "asc")));
+                  kandaSnap = await safeGetDocs(query(kandasColRef, orderBy("kanda_number", "asc")));
                 } catch (e) {
                   try {
-                    kandaSnap = await getDocs(kandasColRef);
+                    kandaSnap = await safeGetDocs(kandasColRef);
                   } catch (e2) {}
                 }
 
@@ -465,10 +531,10 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             try {
               // ordered ascending by kanda_number
               const q = query(directColRef, orderBy("kanda_number", "asc"));
-              snap = await getDocs(q);
+              snap = await safeGetDocs(q);
             } catch (queryErr) {
               console.warn("[Gita Firestore] Failed reading Ramayana (रामायणम्) kandas with orderBy kanda_number, trying unordered:", queryErr);
-              snap = await getDocs(directColRef);
+              snap = await safeGetDocs(directColRef);
             }
 
             if (snap.empty) {
@@ -476,9 +542,9 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
               directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Ramayana (रामायण)");
               try {
                 const q = query(directColRef, orderBy("kanda_number", "asc"));
-                snap = await getDocs(q);
+                snap = await safeGetDocs(q);
               } catch (queryErr) {
-                snap = await getDocs(directColRef);
+                snap = await safeGetDocs(directColRef);
               }
             }
 
@@ -487,9 +553,9 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
               directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Ramayana");
               try {
                 const q = query(directColRef, orderBy("kanda_number", "asc"));
-                snap = await getDocs(q);
+                snap = await safeGetDocs(q);
               } catch (queryErr) {
-                snap = await getDocs(directColRef);
+                snap = await safeGetDocs(directColRef);
               }
             }
 
@@ -514,14 +580,118 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             divisionsFound.sort((a, b) => a.chapter_number - b.chapter_number);
             setDivisions(divisionsFound);
           }
+        } else if (selectedBook === "samaveda") {
+          // --- SAMAVEDA MAPPING ---
+          try {
+            let directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Samaveda (सामवेद)");
+            let snap;
+            try {
+              const q = query(directColRef, orderBy("chapter_number", "asc"));
+              snap = await safeGetDocs(q);
+            } catch (queryErr) {
+              try {
+                const q = query(directColRef, orderBy("part_number", "asc"));
+                snap = await safeGetDocs(q);
+              } catch (queryErr2) {
+                snap = await safeGetDocs(directColRef);
+              }
+            }
+
+            if (snap.empty) {
+              console.log("[Gita Firestore] 'Samaveda (सामवेद)' empty, trying fallback 'Samaveda'...");
+              directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Samaveda");
+              try {
+                const q = query(directColRef, orderBy("chapter_number", "asc"));
+                snap = await safeGetDocs(q);
+              } catch (queryErr) {
+                snap = await safeGetDocs(directColRef);
+              }
+            }
+
+            if (!snap.empty) {
+              divisionsFound = snap.docs.map(docSnap => {
+                const d = docSnap.data();
+                const num = Number(d.chapter_number ?? d.chapterNumber ?? d.chapter ?? d.part_number ?? d.partNumber ?? d.part ?? d.number ?? (docSnap.id.replace(/[^0-9]/g, "") || "0"));
+                const title = String(d.chapter_title ?? d.title ?? d.part_title ?? `Chapter ${num || docSnap.id}`);
+                return {
+                  id: docSnap.id,
+                  chapter_number: num,
+                  chapter_title: title,
+                  docRef: docSnap.ref
+                };
+              }).filter(m => m.chapter_number > 0);
+            }
+          } catch (err) {
+            console.warn("[Gita Firestore] Failed reading Samaveda path:", err);
+          }
+
+          if (divisionsFound.length === 0) {
+            setError("No Samaveda chapters were found in your Firestore database yet. Please ensure your collection is structured as 'Holy Scripture Books' -> document 'Hinduism' -> subcollection 'Samaveda (सामवेद)' or 'Samaveda'.");
+          } else {
+            divisionsFound.sort((a, b) => a.chapter_number - b.chapter_number);
+            setDivisions(divisionsFound);
+          }
+        } else if (selectedBook === "atharvaveda") {
+          // --- ATHARVAVEDA MAPPING ---
+          try {
+            let directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Atharvaveda (अथर्ववेद)");
+            let snap;
+            try {
+              const q = query(directColRef, orderBy("chapter_number", "asc"));
+              snap = await safeGetDocs(q);
+            } catch (queryErr) {
+              try {
+                const q = query(directColRef, orderBy("kanda_number", "asc"));
+                snap = await safeGetDocs(q);
+              } catch (queryErr2) {
+                snap = await safeGetDocs(directColRef);
+              }
+            }
+
+            if (snap.empty) {
+              console.log("[Gita Firestore] 'Atharvaveda (अथर्ववेद)' empty, trying fallback 'Atharvaveda'...");
+              directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Atharvaveda");
+              try {
+                const q = query(directColRef, orderBy("chapter_number", "asc"));
+                snap = await safeGetDocs(q);
+              } catch (queryErr) {
+                snap = await safeGetDocs(directColRef);
+              }
+            }
+
+            if (!snap.empty) {
+              divisionsFound = snap.docs.map(docSnap => {
+                const d = docSnap.data();
+                const num = Number(d.chapter_number ?? d.chapterNumber ?? d.chapter ?? d.kanda_number ?? d.kandaNumber ?? d.kanda ?? d.number ?? (docSnap.id.replace(/[^0-9]/g, "") || "0"));
+                const title = String(d.chapter_title ?? d.title ?? d.kanda_title ?? `Chapter ${num || docSnap.id}`);
+                return {
+                  id: docSnap.id,
+                  chapter_number: num,
+                  chapter_title: title,
+                  docRef: docSnap.ref
+                };
+              }).filter(m => m.chapter_number > 0);
+            }
+          } catch (err) {
+            console.warn("[Gita Firestore] Failed reading Atharvaveda path:", err);
+          }
+
+          if (divisionsFound.length === 0) {
+            setError("No Atharvaveda chapters were found in your Firestore database yet. Please ensure your collection is structured as 'Holy Scripture Books' -> document 'Hinduism' -> subcollection 'Atharvaveda (अथर्ववेद)' or 'Atharvaveda'.");
+          } else {
+            divisionsFound.sort((a, b) => a.chapter_number - b.chapter_number);
+            setDivisions(divisionsFound);
+          }
         } else if (selectedBook === "mahapuranas") {
           // --- NEW MAHAPURANAS MAPPING ---
           try {
             const candidatePaths = [
               collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)"),
               collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas"),
-              collection(db, "Holy Scripture Books", "Hinduism", "Puranas"),
               collection(db, "Holy Scripture Books", "Hinduism", "Puranas (पुराणानी)"),
+              collection(db, "Holy Scripture Books", "Hinduism", "Puranas"),
+              collection(db, "Holy Scripture Books", "hinduism", "Mahapuranas (महापुराणाणि)"),
+              collection(db, "Holy Scripture Books", "hinduism", "Mahapuranas"),
               collection(db, "Mahapuranas (महापुराणाणि)"),
               collection(db, "Mahapuranas")
             ];
@@ -529,16 +699,7 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             let snap = null;
             for (const colRef of candidatePaths) {
               try {
-                let testSnap;
-                try {
-                  testSnap = await getDocs(query(colRef, orderBy("purana_number", "asc")));
-                } catch {
-                  try {
-                    testSnap = await getDocs(query(colRef, orderBy("number", "asc")));
-                  } catch {
-                    testSnap = await getDocs(colRef);
-                  }
-                }
+                const testSnap = await safeGetDocs(colRef);
                 if (testSnap && !testSnap.empty) {
                   snap = testSnap;
                   console.log(`[Gita Firestore] Successfully loaded Mahapuranas from path: ${colRef.path}, found ${testSnap.size} documents.`);
@@ -553,7 +714,7 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
               divisionsFound = snap.docs.map((docSnap, idx) => {
                 const d = docSnap.data();
                 const pNum = Number(d.purana_number ?? d.puranaNumber ?? d.number ?? d.chapter_number ?? d.chapterNumber ?? (idx + 1));
-                const pTitle = formatChapterTitle(String(d.purana_title ?? d.purana_name ?? d.title ?? d.name ?? d.book_title ?? docSnap.id));
+                const pTitle = formatChapterTitle(String(d.book_title ?? d.purana_title ?? d.purana_name ?? d.title ?? d.name ?? docSnap.id));
                 return {
                   id: docSnap.id,
                   chapter_number: pNum,
@@ -572,6 +733,129 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             divisionsFound.sort((a, b) => a.chapter_number - b.chapter_number);
             setDivisions(divisionsFound);
           }
+        } else if (selectedBook === "upapuranas") {
+          // --- UPAPURANAS MAPPING ---
+          try {
+            const candidatePaths = [
+              collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)"),
+              collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराणानि)"),
+              collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas"),
+              collection(db, "Holy Scripture Books", "hinduism", "Upapuranas (उपपुराण)"),
+              collection(db, "Holy Scripture Books", "hinduism", "Upapuranas"),
+              collection(db, "Upapuranas (उपपुराण)"),
+              collection(db, "Upapuranas")
+            ];
+
+            let snap = null;
+            for (const colRef of candidatePaths) {
+              try {
+                const testSnap = await safeGetDocs(colRef);
+                if (testSnap && !testSnap.empty) {
+                  snap = testSnap;
+                  console.log(`[Gita Firestore] Successfully loaded Upapuranas from path: ${colRef.path}, found ${testSnap.size} documents.`);
+                  break;
+                }
+              } catch (e) {
+                console.warn(`[Gita Firestore] Error reading candidate path ${colRef.path}:`, e);
+              }
+            }
+
+            if (snap && !snap.empty) {
+              divisionsFound = snap.docs.map((docSnap, idx) => {
+                const d = docSnap.data();
+                const pNum = Number(d.purana_number ?? d.puranaNumber ?? d.number ?? d.chapter_number ?? d.chapterNumber ?? (idx + 1));
+                const pTitle = formatChapterTitle(String(d.book_title ?? d.purana_title ?? d.purana_name ?? d.title ?? d.name ?? docSnap.id));
+                return {
+                  id: docSnap.id,
+                  chapter_number: pNum,
+                  chapter_title: pTitle,
+                  docRef: docSnap.ref
+                };
+              });
+            }
+          } catch (err) {
+            console.warn("[Gita Firestore] Failed reading Upapuranas path:", err);
+          }
+
+          if (divisionsFound.length === 0) {
+            setError("No Upapuranas were found in your Firestore database yet. Please ensure your collection is structured as 'Holy Scripture Books' -> document 'Hinduism' -> subcollection 'Upapuranas (उपपुराण)'.");
+          } else {
+            divisionsFound.sort((a, b) => a.chapter_number - b.chapter_number);
+            setDivisions(divisionsFound);
+          }
+        } else if (selectedBook === "upanishads") {
+          const candidatePaths = [
+            collection(db, "Holy Scripture Books", "Hinduism", " Principal Upanishads (उपनिषद्)"),
+            collection(db, "Holy Scripture Books", "Hinduism", "Principal Upanishads (उपनिषद्)"),
+            collection(db, "Holy Scripture Books", "Hinduism", " Principal Upanishads"),
+            collection(db, "Holy Scripture Books", "Hinduism", "Principal Upanishads"),
+            collection(db, "Holy Scripture Books", "Hinduism", " Upanishads (उपनिषद्)"),
+            collection(db, "Holy Scripture Books", "Hinduism", "Upanishads (उपनिषद्)"),
+            collection(db, "Holy Scripture Books", "Hinduism", "Upanishads"),
+            collection(db, "Holy Scripture Books", "hinduism", " Principal Upanishads (उपनिषद्)"),
+            collection(db, "Holy Scripture Books", "hinduism", "Principal Upanishads (उपनिषद्)"),
+            collection(db, "Holy Scripture Books", "hinduism", "Principal Upanishads"),
+            collection(db, " Principal Upanishads (उपनिषद्)"),
+            collection(db, "Principal Upanishads (उपनिषद्)"),
+            collection(db, "Principal Upanishads")
+          ];
+
+          let snap = null;
+          for (const pCol of candidatePaths) {
+            try {
+              let testSnap: any = null;
+              for (const ordField of ["upanishad_number", "number", "chapter_number"]) {
+                try {
+                  const q = query(pCol, orderBy(ordField, "asc"));
+                  testSnap = await safeGetDocs(q);
+                  if (testSnap && !testSnap.empty) break;
+                } catch (e) {}
+              }
+              if (!testSnap || testSnap.empty) {
+                testSnap = await safeGetDocs(pCol);
+              }
+              if (testSnap && !testSnap.empty) {
+                snap = testSnap;
+                break;
+              }
+            } catch (e) {}
+          }
+
+          if (snap && !snap.empty) {
+            divisionsFound = snap.docs.map((docSnap: any, idx: number) => {
+              const d = docSnap.data();
+              const uTitle = formatChapterTitle(String(d.book_title ?? d.upanishad_title ?? d.upanishad_name ?? d.title ?? d.name ?? docSnap.id));
+
+              let uNum = Number(d.upanishad_number ?? d.upanishadNumber ?? d.number ?? d.chapter_number ?? d.chapterNumber);
+              if (!uNum || isNaN(uNum)) {
+                const norm = docSnap.id.toLowerCase().replace(/upanishad|upnishad/g, "").replace(/[^a-z]/g, "").trim();
+                const matched = UPANISHADS_108.find(u => {
+                  const uClean = u.name.toLowerCase().replace(/[^a-z]/g, "");
+                  return uClean === norm || norm.startsWith(uClean) || uClean.startsWith(norm);
+                });
+                if (matched) {
+                  uNum = matched.number;
+                } else {
+                  const parsedId = Number(docSnap.id.replace(/[^0-9]/g, ""));
+                  uNum = (!isNaN(parsedId) && parsedId > 0) ? parsedId : (idx + 1);
+                }
+              }
+
+              return {
+                id: docSnap.id,
+                chapter_number: uNum,
+                chapter_title: uTitle,
+                docRef: docSnap.ref
+              };
+            });
+          }
+
+          if (divisionsFound.length === 0) {
+            setError("No Upanishads were found in your Firestore database yet. Please ensure your collection is structured as 'Holy Scripture Books' -> document 'Hinduism' -> subcollection 'Principal Upanishads (उपनिषद्)'.");
+          } else {
+            divisionsFound.sort((a, b) => a.chapter_number - b.chapter_number);
+            setDivisions(divisionsFound);
+          }
         }
       } catch (err: any) {
         console.error("[Gita Firestore] Error loading divisions:", err);
@@ -582,11 +866,11 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
     };
 
     fetchDivisions();
-  }, [selectedBook, yajurvedaBranch]);
+  }, [selectedBook, yajurvedaBranch, dataVersion]);
 
-  // Load sargas, adhyayas, or prashnas when a Kanda/Parva/Branch/Purana is selected
+  // Load sargas, adhyayas, suktas, or prashnas when a Division is selected
   useEffect(() => {
-    if (!selectedDivision || (selectedBook !== "ramayana" && selectedBook !== "mahabharata" && selectedBook !== "mahapuranas" && !(selectedBook === "yajurveda" && yajurvedaBranch === "krishna"))) {
+    if (!selectedDivision) {
       setSargas([]);
       setSelectedSarga(null);
       return;
@@ -598,43 +882,126 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
       setSelectedSarga(null);
       try {
         let subcolNames: string[] = [];
-        if (selectedBook === "mahabharata") subcolNames = ["adhyayas"];
-        else if (selectedBook === "ramayana") subcolNames = ["sargas"];
-        else if (selectedBook === "yajurveda") subcolNames = ["prashanas", "prashnas", "adhyayas", "sargas", "chapters"];
-        else if (selectedBook === "mahapuranas") {
-          const isShiva = selectedDivision?.id?.toLowerCase().includes("shiva") || selectedDivision?.chapter_title?.toLowerCase().includes("shiva");
-          subcolNames = isShiva 
-            ? ["samhitas", "Samhitas", "chapters", "Chapters", "skandas", "khandas"]
-            : ["chapters", "Chapters", "samhitas", "Samhitas", "skandas", "khandas"];
+        if ((selectedBook as string) === "mahabharata") {
+          subcolNames = ["adhyayas", "Adhyayas", "chapters", "Chapters", "parvas", "Parvas", "sargas", "Sargas"];
+        } else if ((selectedBook as string) === "ramayana") {
+          subcolNames = ["sargas", "Sargas", "chapters", "Chapters", "adhyayas", "Adhyayas", "kandas", "Kandas"];
+        } else if ((selectedBook as string) === "rigveda") {
+          subcolNames = ["suktas", "Suktas", "hymns", "Hymns", "anuvakas", "Anuvakas", "adhyayas", "Adhyayas", "vargas", "Vargas", "chapters", "Chapters"];
+        } else if ((selectedBook as string) === "samaveda") {
+          subcolNames = ["chapters", "Chapters", "suktas", "Suktas", "padas", "Padas", "anuvakas", "Anuvakas", "archikas", "parts"];
+        } else if ((selectedBook as string) === "atharvaveda") {
+          subcolNames = ["suktas", "Suktas", "hymns", "Hymns", "anuvakas", "Anuvakas", "prapāṭhakas", "chapters", "Chapters", "kandas"];
+        } else if ((selectedBook as string) === "yajurveda") {
+          subcolNames = yajurvedaBranch === "krishna"
+            ? ["prashanas", "Prashanas", "prashnas", "Prashnas", "anuvakas", "Anuvakas", "adhyayas", "Adhyayas", "chapters", "Chapters"]
+            : ["anuvakas", "Anuvakas", "adhyayas", "Adhyayas", "chapters", "Chapters", "sections", "Sections"];
+        } else if ((selectedBook as string) === "mahapuranas" || (selectedBook as string) === "upapuranas") {
+          subcolNames = [
+            "skandhas", "Skandhas",
+            "samhitas", "Samhitas",
+            "chapters", "Chapters",
+            "cantos", "Cantos",
+            "skandas", "Skandas",
+            "khandas", "Khandas",
+            "sections", "Sections"
+          ];
+        } else if ((selectedBook as string) === "upanishads") {
+          subcolNames = [
+            "chapters", "Chapters",
+            "khandas", "Khandas",
+            "adhyayas", "Adhyayas",
+            "vallis", "Vallis", "valli",
+            "sections", "Sections",
+            "brahmanas", "Brahmanas",
+            "anuvakas", "Anuvakas",
+            "parts", "Parts"
+          ];
         }
+
+        if (subcolNames.length === 0) {
+          setSargas([]);
+          setLoadingSargas(false);
+          return;
+        }
+
+        // Map each candidate subcollection name to the field its docs actually use for ordering
+        const orderFieldMap: Record<string, string> = {
+          skandhas: "skandha_number",
+          Skandhas: "skandha_number",
+          skandas: "skandha_number",
+          Skandas: "skandha_number",
+          samhitas: "samhita_number",
+          Samhitas: "samhita_number",
+          chapters: "chapter_number",
+          Chapters: "chapter_number",
+          cantos: "canto_number",
+          Cantos: "canto_number",
+          khandas: "khanda_number",
+          Khandas: "khanda_number",
+          vallis: "valli_number",
+          Vallis: "valli_number",
+          valli: "valli_number",
+          brahmanas: "brahmana_number",
+          Brahmanas: "brahmana_number",
+          sections: "section_number",
+          Sections: "section_number",
+          suktas: "sukta_number",
+          Suktas: "sukta_number",
+          hymns: "hymn_number",
+          Hymns: "hymn_number",
+          adhyayas: "adhyaya_number",
+          Adhyayas: "adhyaya_number",
+          sargas: "sarga_number",
+          Sargas: "sarga_number",
+          prashanas: "prashana_number",
+          Prashanas: "prashana_number",
+          prashnas: "prashna_number",
+          Prashnas: "prashna_number",
+          anuvakas: "anuvaka_number",
+          Anuvakas: "anuvaka_number",
+          padas: "pada_number",
+          Padas: "pada_number"
+        };
 
         let snap = null;
         let matchedSubcol = "";
 
         for (const subcolName of subcolNames) {
           const sargasColRef = collection(selectedDivision.docRef, subcolName);
-          try {
-            const orderField = selectedBook === "mahabharata"
+          const orderField = orderFieldMap[subcolName] || (
+            selectedBook === "mahabharata"
               ? "adhyaya_number"
               : selectedBook === "yajurveda"
               ? (subcolName === "prashanas" ? "prashana_number" : "prashna_number")
-              : "sarga_number";
+              : (selectedBook === "rigveda" || selectedBook === "atharvaveda" || selectedBook === "samaveda")
+              ? "sukta_number"
+              : selectedBook === "upanishads"
+              ? "chapter_number"
+              : "sarga_number"
+          );
+
+          let testSnap: any = null;
+
+          try {
             const q = query(sargasColRef, orderBy(orderField, "asc"));
-            const testSnap = await getDocs(q);
-            if (!testSnap.empty) {
-              snap = testSnap;
-              matchedSubcol = subcolName;
-              break;
-            }
+            testSnap = await safeGetDocs(q);
           } catch (err) {
+            testSnap = null;
+          }
+
+          if (!testSnap || testSnap.empty) {
             try {
-              const testSnap = await getDocs(sargasColRef);
-              if (!testSnap.empty) {
-                snap = testSnap;
-                matchedSubcol = subcolName;
-                break;
-              }
-            } catch (err2) {}
+              testSnap = await safeGetDocs(sargasColRef);
+            } catch (err2) {
+              testSnap = null;
+            }
+          }
+
+          if (testSnap && !testSnap.empty) {
+            snap = testSnap;
+            matchedSubcol = subcolName;
+            break;
           }
         }
 
@@ -647,9 +1014,11 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
         const sargasFound: SargaData[] = snap.docs.map((docSnap, idx) => {
           const d = docSnap.data();
           const sNum = Number(
-            (d.samhita_number ?? d.samhitaNumber ?? d.prashana_number ?? d.prashanaNumber ?? d.prashna_number ?? d.prashnaNumber ?? d.adhyaya_number ?? d.sarga_number ?? d.chapter_number ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (idx + 1)
+            (d.sukta_number ?? d.suktaNumber ?? d.sukta ?? d.hymn_number ?? d.hymn ?? d.pada_number ?? d.anuvaka_number ?? d.samhita_number ?? d.samhitaNumber ?? d.skandha_number ?? d.skandhaNumber ?? d.canto_number ?? d.cantoNumber ?? d.prashana_number ?? d.prashanaNumber ?? d.prashna_number ?? d.prashnaNumber ?? d.adhyaya_number ?? d.sarga_number ?? d.chapter_number ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (idx + 1)
           );
-          const sTitle = String(d.samhita_name ?? d.samhitaName ?? d.samhita_title ?? d.title ?? d.name ?? d.sarga_title ?? d.chapter_title ?? "");
+          const sTitle = String(
+            d.sukta_title ?? d.sukta_name ?? d.hymn_title ?? d.hymn_name ?? d.samhita_name ?? d.samhitaName ?? d.samhita_title ?? d.skandha_name ?? d.skandhaName ?? d.skandha_title ?? d.canto_title ?? d.canto_name ?? d.title ?? d.name ?? d.sarga_title ?? d.chapter_title ?? `${getSubdivisionName(selectedBook, true)} ${sNum}`
+          );
           const refVal = d.reference ? String(d.reference) : `${getSubdivisionName(selectedBook, true)} ${sNum}`;
           return {
             id: docSnap.id,
@@ -672,10 +1041,8 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             setSelectedSarga(sargasFound[0]);
           }
           setPendingSubLevel(null);
-        }
-
-        if (sargasFound.length === 0) {
-          setSargasError(`No ${getSubdivisionNamePlural(selectedBook)} were found under this ${getDivisionName(selectedBook, true)}.`);
+        } else if (selectedBook === "upanishads" && sargasFound.length === 1) {
+          setSelectedSarga(sargasFound[0]);
         }
       } catch (err: any) {
         console.error(`[Gita Firestore] Error loading sub-divisions:`, err);
@@ -686,30 +1053,23 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
     };
 
     fetchSargas();
-  }, [selectedDivision, selectedBook, yajurvedaBranch]);
+  }, [selectedDivision, selectedBook, yajurvedaBranch, dataVersion]);
 
-  // Load verses when chapter/mandal, sarga/adhyaya, or prashna is selected
+  // Load verses whenever selected division / sarga changes
   useEffect(() => {
     if (!selectedDivision) {
       setVerses([]);
       return;
     }
 
-    const is3Tier = selectedBook === "ramayana" || selectedBook === "mahabharata" || selectedBook === "mahapuranas" || (selectedBook === "yajurveda" && yajurvedaBranch === "krishna");
-
-    // If waiting for Prashanas/Sargas to load in a 3-tier structure, don't query verses prematurely
-    if (is3Tier && loadingSargas) {
+    // If waiting for Prashanas/Sargas/Suktas to load, don't query verses prematurely
+    if (loadingSargas) {
       setLoadingVerses(true);
       return;
     }
 
-    if (is3Tier && !selectedSarga && sargas.length > 0) {
-      setVerses([]);
-      setLoadingVerses(false);
-      return;
-    }
-
-    if ((selectedBook === "ramayana" || selectedBook === "mahabharata") && !selectedSarga) {
+    // Only wait for sub-division selection if sub-divisions were actually found
+    if (sargas.length > 0 && !selectedSarga) {
       setVerses([]);
       setLoadingVerses(false);
       return;
@@ -720,78 +1080,250 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
       setVersesError(null);
       try {
         const parentDocRef = selectedSarga ? selectedSarga.docRef : selectedDivision.docRef;
-        const versesColRef = collection(parentDocRef, "verses");
         
-        let snap;
-        try {
-          const q = query(versesColRef, orderBy("verse_number", "asc"));
-          snap = await getDocs(q);
-        } catch (queryErr) {
-          console.warn("[Gita Firestore] Failed fetching verses with orderBy, trying unordered:", queryErr);
-          snap = await getDocs(versesColRef);
+        let snap: any = null;
+        const verseSubcolCandidates = [
+          "verses", "Verses", "verse", "Verse",
+          "slokas", "Shlokas", "shlokas", "Shloka",
+          "mantras", "Mantras", "mantra", "Mantra",
+          "richas", "Richas", "suktas", "Suktas",
+          "padas", "Padas", "anuvakas", "Anuvakas",
+          "lines", "Lines", "text", "shlok"
+        ];
+
+        // 1. Check direct verse subcollections on parentDocRef
+        for (const vSubcol of verseSubcolCandidates) {
+          const versesColRef = collection(parentDocRef, vSubcol);
+          for (const orderFieldName of ["verse_number", "number", "verse_num", "verse_no", "verseNo", "verse", "mantra_number", "sloka_number", "shloka_number", "richa_number"]) {
+            try {
+              const q = query(versesColRef, orderBy(orderFieldName, "asc"));
+              const testSnap = await safeGetDocs(q);
+              if (testSnap && !testSnap.empty) {
+                snap = testSnap;
+                break;
+              }
+            } catch (queryErr) {
+              // try next order field
+            }
+          }
+          if (snap && !snap.empty) break;
+
+          try {
+            const testSnap = await safeGetDocs(versesColRef);
+            if (testSnap && !testSnap.empty) {
+              snap = testSnap;
+              break;
+            }
+          } catch (err2) {
+            // try next subcol
+          }
         }
         
         let versesFound: VerseData[] = [];
 
         if (snap && !snap.empty) {
-          versesFound = snap.docs.map((docSnap, idx) => {
+          versesFound = snap.docs.map((docSnap: any, idx: number) => {
             const d = docSnap.data();
-            const vNum = Number((d.verse_number ?? d.verseNumber ?? d.verse_num ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (idx + 1));
+            const rawNum = d.verse_number ?? d.verseNumber ?? d.verse_num ?? d.verse_no ?? d.verseNo ?? d.number ?? d.verse ?? d.mantra_number ?? d.sloka_number ?? d.shloka_number ?? (docSnap.id.replace(/[^0-9]/g, "") || "0");
+            const vNum = Number(rawNum) || (idx + 1);
             
             // Display reference field as the verse label
             const refVal = d.reference ? String(d.reference) : 
-              selectedSarga
+              selectedBook === "upanishads" && selectedSarga
+                ? `${selectedSarga.sarga_number}.${vNum}`
+                : selectedSarga
                 ? `${selectedDivision.chapter_number}.${selectedSarga.sarga_number}.${vNum}`
                 : `${selectedDivision.chapter_number}.${vNum}`;
             
+            const verseText = extractVerseText(d);
+            const itxText = extractTransliteration(d);
+
             return {
-              id: docSnap.id,
+              id: `${docSnap.id}_${idx}`,
               verse_number: vNum,
               reference: refVal,
-              text: String(d.text ?? d.text_content ?? d.originalText ?? d.original_text ?? d.translation ?? ""),
-              itx: d.itx || d.transliteration || ""
+              text: verseText,
+              itx: itxText
             };
-          }).filter(v => v.verse_number > 0 || v.text !== "");
+          }).filter((v: VerseData) => v.verse_number > 0 || v.text !== "");
         } else {
-          // If no direct 'verses' subcollection, check if parentDocRef has subcollection 'chapters' (e.g. Shiva Purana: samhita -> chapters -> verses)
-          const chapColRef = collection(parentDocRef, "chapters");
-          let chapSnap;
-          try {
-            const q = query(chapColRef, orderBy("chapter_number", "asc"));
-            chapSnap = await getDocs(q);
-          } catch {
-            chapSnap = await getDocs(chapColRef);
+          // 2. Multi-tier probe: check nested subcollections (e.g. Shiva Purana: samhita -> khandas/chapters -> verses, Bhagavata/Devi Bhagavata: skandha -> chapters -> verses, Ramayana: kanda -> sargas -> verses, Rigveda: mandala -> suktas -> verses)
+          const nestedSubcolNames = [
+            "chapters", "Chapters", "khandas", "Khandas", "skandhas", "Skandhas", "samhitas", "Samhitas",
+            "cantos", "Cantos", "sections", "Sections", "adhyayas", "Adhyayas", "sargas", "Sargas",
+            "suktas", "Suktas", "hymns", "Hymns", "anuvakas", "Anuvakas", "vargas", "Vargas",
+            "prashanas", "prashnas", "padas", "Padas"
+          ];
+
+          for (const nestedSubcol of nestedSubcolNames) {
+            const subColRef = collection(parentDocRef, nestedSubcol);
+            let subSnap: any = null;
+            
+            for (const orderField of ["chapter_number", "sarga_number", "adhyaya_number", "sukta_number", "khanda_number", "skandha_number", "number"]) {
+              try {
+                const testSnap = await safeGetDocs(query(subColRef, orderBy(orderField, "asc")));
+                if (testSnap && !testSnap.empty) {
+                  subSnap = testSnap;
+                  break;
+                }
+              } catch (e) {}
+            }
+
+            if (!subSnap || subSnap.empty) {
+              try {
+                const testSnap = await safeGetDocs(subColRef);
+                if (testSnap && !testSnap.empty) {
+                  subSnap = testSnap;
+                }
+              } catch (e) {}
+            }
+
+            if (subSnap && !subSnap.empty) {
+              const nestedVersesPromises = subSnap.docs.map(async (subDoc: any, sIdx: number) => {
+                const sData = subDoc.data();
+                const sNum = Number(sData.chapter_number ?? sData.chapterNumber ?? sData.sarga_number ?? sData.adhyaya_number ?? sData.sukta_number ?? sData.khanda_number ?? sData.skandha_number ?? sData.number ?? (subDoc.id.replace(/[^0-9]/g, "") || (sIdx + 1)));
+                
+                // Try direct verses under subDoc
+                for (const vSubcol of ["verses", "Verses", "verse", "Verse", "slokas", "Shlokas", "shlokas", "mantras", "Mantras", "richas", "Richas", "padas", "lines"]) {
+                  const versesSubcol = collection(subDoc.ref, vSubcol);
+                  let vSnap: any = null;
+                  
+                  for (const vOrder of ["verse_number", "number", "verse_num", "verse_no", "sloka_number", "mantra_number"]) {
+                    try {
+                      const testVSnap = await safeGetDocs(query(versesSubcol, orderBy(vOrder, "asc")));
+                      if (testVSnap && !testVSnap.empty) {
+                        vSnap = testVSnap;
+                        break;
+                      }
+                    } catch (e) {}
+                  }
+
+                  if (!vSnap || vSnap.empty) {
+                    try {
+                      const testVSnap = await safeGetDocs(versesSubcol);
+                      if (testVSnap && !testVSnap.empty) {
+                        vSnap = testVSnap;
+                      }
+                    } catch (e) {}
+                  }
+
+                  if (vSnap && !vSnap.empty) {
+                    return vSnap.docs.map((docSnap: any, vIdx: number) => {
+                      const d = docSnap.data();
+                      const vNum = Number((d.verse_number ?? d.verseNumber ?? d.verse_num ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (vIdx + 1));
+                      const refVal = d.reference ? String(d.reference) : `${selectedDivision.chapter_number}.${sNum}.${vNum}`;
+                      return {
+                        id: `${subDoc.id}_${docSnap.id}_${vIdx}`,
+                        verse_number: sNum * 1000 + vNum,
+                        reference: refVal,
+                        text: extractVerseText(d),
+                        itx: extractTransliteration(d)
+                      };
+                    });
+                  }
+                }
+
+                // If subDoc is an intermediate container (e.g. Khanda in Shiva Purana Rudra Samhita, or Chapter with nested verses)
+                for (const tier3Subcol of ["chapters", "Chapters", "adhyayas", "Adhyayas", "sections", "Sections", "suktas", "verses"]) {
+                  const tier3Col = collection(subDoc.ref, tier3Subcol);
+                  let tier3Snap: any = null;
+                  try {
+                    const testSnap = await safeGetDocs(tier3Col);
+                    if (testSnap && !testSnap.empty) tier3Snap = testSnap;
+                  } catch (e) {}
+
+                  if (tier3Snap && !tier3Snap.empty) {
+                    const tier3Promises = tier3Snap.docs.map(async (t3Doc: any, t3Idx: number) => {
+                      const t3Data = t3Doc.data();
+                      const t3Num = Number(t3Data.chapter_number ?? t3Data.adhyaya_number ?? t3Data.number ?? (t3Doc.id.replace(/[^0-9]/g, "") || (t3Idx + 1)));
+                      
+                      // Check if t3Doc is a verse itself
+                      const t3Text = extractVerseText(t3Data);
+                      if (t3Text) {
+                        return [{
+                          id: `${subDoc.id}_${t3Doc.id}_${t3Idx}`,
+                          verse_number: sNum * 10000 + t3Num,
+                          reference: `${selectedDivision.chapter_number}.${sNum}.${t3Num}`,
+                          text: t3Text,
+                          itx: extractTransliteration(t3Data)
+                        }];
+                      }
+
+                      // Check verses under t3Doc
+                      for (const vSub of ["verses", "Verses", "verse", "slokas", "shlokas", "mantras"]) {
+                        const vCol3 = collection(t3Doc.ref, vSub);
+                        let vSnap3: any = null;
+                        try {
+                          vSnap3 = await safeGetDocs(vCol3);
+                        } catch (e) {}
+
+                        if (vSnap3 && !vSnap3.empty) {
+                          return vSnap3.docs.map((docSnap: any, vIdx: number) => {
+                            const d = docSnap.data();
+                            const vNum = Number((d.verse_number ?? d.verseNumber ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (vIdx + 1));
+                            return {
+                              id: `${subDoc.id}_${t3Doc.id}_${docSnap.id}_${vIdx}`,
+                              verse_number: sNum * 10000 + t3Num * 100 + vNum,
+                              reference: `${selectedDivision.chapter_number}.${sNum}.${t3Num}.${vNum}`,
+                              text: extractVerseText(d),
+                              itx: extractTransliteration(d)
+                            };
+                          });
+                        }
+                      }
+                      return [];
+                    });
+
+                    const tier3Resolved = await Promise.all(tier3Promises);
+                    const tier3Flat = tier3Resolved.flat();
+                    if (tier3Flat.length > 0) return tier3Flat;
+                  }
+                }
+
+                return [];
+              });
+
+              const nestedVerses = await Promise.all(nestedVersesPromises);
+              const flattened = nestedVerses.flat();
+              if (flattened.length > 0) {
+                versesFound = flattened;
+                break;
+              }
+            }
           }
 
-          if (chapSnap && !chapSnap.empty) {
-            const nestedVersesPromises = chapSnap.docs.map(async (chapDoc, cIdx) => {
-              const cData = chapDoc.data();
-              const chNum = Number(cData.chapter_number ?? cData.chapterNumber ?? cData.number ?? (chapDoc.id.replace(/[^0-9]/g, "") || (cIdx + 1)));
-              const versesSubcol = collection(chapDoc.ref, "verses");
-              let vSnap;
-              try {
-                const q = query(versesSubcol, orderBy("verse_number", "asc"));
-                vSnap = await getDocs(q);
-              } catch {
-                vSnap = await getDocs(versesSubcol);
+          // 3. If still empty, check if parentDocRef document itself contains a verses / shlokas / mantras array
+          if (versesFound.length === 0) {
+            try {
+              const pSnap = await safeGetDoc(parentDocRef);
+              if (pSnap && pSnap.exists()) {
+                const pData = pSnap.data();
+                const arr = pData.verses || pData.shlokas || pData.mantras || pData.lines || pData.content;
+                if (Array.isArray(arr) && arr.length > 0) {
+                  versesFound = arr.map((item: any, idx: number) => {
+                    if (typeof item === "string") {
+                      return {
+                        id: `item_${idx}`,
+                        verse_number: idx + 1,
+                        reference: `${selectedDivision.chapter_number}.${idx + 1}`,
+                        text: item,
+                        itx: ""
+                      };
+                    }
+                    const vNum = Number(item.verse_number ?? item.number ?? (idx + 1));
+                    return {
+                      id: `item_${idx}`,
+                      verse_number: vNum,
+                      reference: item.reference || `${selectedDivision.chapter_number}.${vNum}`,
+                      text: extractVerseText(item),
+                      itx: extractTransliteration(item)
+                    };
+                  });
+                }
               }
-
-              return vSnap.docs.map((docSnap, vIdx) => {
-                const d = docSnap.data();
-                const vNum = Number((d.verse_number ?? d.verseNumber ?? d.verse_num ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (vIdx + 1));
-                const refVal = d.reference ? String(d.reference) : `Chapter ${chNum}, Verse ${vNum}`;
-                return {
-                  id: docSnap.id,
-                  verse_number: chNum * 1000 + vNum,
-                  reference: refVal,
-                  text: String(d.text ?? d.text_content ?? d.originalText ?? d.original_text ?? d.translation ?? ""),
-                  itx: d.itx || d.transliteration || ""
-                };
-              });
-            });
-
-            const nestedVerses = await Promise.all(nestedVersesPromises);
-            versesFound = nestedVerses.flat();
+            } catch (errDoc) {
+              // ignore
+            }
           }
         }
 
@@ -811,7 +1343,7 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
     };
 
     fetchVerses();
-  }, [selectedDivision, selectedSarga, selectedBook, yajurvedaBranch, loadingSargas, sargas.length]);
+  }, [selectedDivision, dataVersion, selectedSarga, selectedBook, yajurvedaBranch, loadingSargas, sargas.length]);
 
   const handleYajurvedaDropdownSelect = (levelId: number, subLevelId?: number) => {
     if (selectedBook !== "yajurveda") return;
@@ -856,9 +1388,9 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-white/5 pb-4">
         <div className="space-y-1.5 min-w-0">
           <div className="flex items-center space-x-2">
-            <span className="p-1 px-2.5 rounded-full bg-amber-500/10 text-amber-400 font-mono text-[9px] tracking-widest uppercase border border-amber-500/20 font-bold inline-flex items-center gap-1">
+            <span className={`p-1 px-2.5 rounded-full ${checkIsQuotaExhausted() ? "bg-amber-500/20 text-amber-300 border-amber-500/40" : "bg-amber-500/10 text-amber-400 border-amber-500/20"} font-mono text-[9px] tracking-widest uppercase border font-bold inline-flex items-center gap-1`}>
               <Sparkles className="w-3 h-3 animate-pulse" />
-              <span>LIVE FIRESTORE DATABASE CONNECTED</span>
+              <span>{checkIsQuotaExhausted() ? "FIRESTORE PAUSED (QUOTA REACHED - LOCAL MODE)" : "LIVE FIRESTORE DATABASE CONNECTED"}</span>
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -878,6 +1410,14 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
                   ? "Mahabharata (महाभारतम्)"
                   : selectedBook === "yajurveda"
                   ? "Yajurveda (यजुर्वेदः)"
+                  : selectedBook === "samaveda"
+                  ? "Samaveda (सामवेद)"
+                  : selectedBook === "atharvaveda"
+                  ? "Atharvaveda (अथर्ववेद)"
+                  : selectedBook === "upanishads"
+                  ? "Principal Upanishads (उपनिषद्)"
+                  : selectedBook === "upapuranas"
+                  ? "Upapuranas (उपपुराण)"
                   : "Mahapuranas (महापुराणाणि)"}
               </span>
             </h2>
@@ -940,6 +1480,28 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
                 Yajurveda (यजुर्वेदः)
               </button>
               <button
+                id="select-samaveda-btn"
+                onClick={() => setSelectedBook("samaveda")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer leading-[1.85] ${
+                  selectedBook === "samaveda"
+                    ? "bg-amber-500 text-stone-950 font-bold shadow-md"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Samaveda (सामवेद)
+              </button>
+              <button
+                id="select-atharvaveda-btn"
+                onClick={() => setSelectedBook("atharvaveda")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer leading-[1.85] ${
+                  selectedBook === "atharvaveda"
+                    ? "bg-amber-500 text-stone-950 font-bold shadow-md"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Atharvaveda (अथर्ववेद)
+              </button>
+              <button
                 id="select-mahapuranas-btn"
                 onClick={() => setSelectedBook("mahapuranas")}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer leading-[1.85] ${
@@ -949,6 +1511,28 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
                 }`}
               >
                 Mahapuranas (महापुराणाणि)
+              </button>
+              <button
+                id="select-upapuranas-btn"
+                onClick={() => setSelectedBook("upapuranas")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer leading-[1.85] ${
+                  selectedBook === "upapuranas"
+                    ? "bg-amber-500 text-stone-950 font-bold shadow-md"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Upapuranas (उपपुराण)
+              </button>
+              <button
+                id="select-upanishads-btn"
+                onClick={() => setSelectedBook("upanishads")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer leading-[1.85] ${
+                  selectedBook === "upanishads"
+                    ? "bg-amber-500 text-stone-950 font-bold shadow-md"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Principal Upanishads (उपनिषद्)
               </button>
             </div>
           </div>
@@ -978,16 +1562,17 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
           <button
             id="back-to-chapters-btn"
             onClick={() => {
-              if ((selectedBook === "ramayana" || selectedBook === "mahabharata" || (selectedBook === "yajurveda" && yajurvedaBranch === "krishna")) && selectedSarga) {
+              if (selectedSarga && sargas.length > 1) {
                 setSelectedSarga(null);
               } else {
+                setSelectedSarga(null);
                 setSelectedDivision(null);
               }
             }}
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-amber-400 border border-white/10 hover:border-amber-500/30 transition-all cursor-pointer font-medium"
           >
             <ChevronLeft className="w-4 h-4" />
-            <span>{(selectedBook === "ramayana" || selectedBook === "mahabharata" || (selectedBook === "yajurveda" && yajurvedaBranch === "krishna")) && selectedSarga ? `Back to ${getSubdivisionNamePlural(selectedBook)}` : `Back to ${getDivisionNamePlural(selectedBook)}`}</span>
+            <span>{selectedSarga && sargas.length > 1 ? `Back to ${getSubdivisionNamePlural(selectedBook)}` : `Back to ${getDivisionNamePlural(selectedBook)}`}</span>
           </button>
         )}
       </div>
@@ -1040,8 +1625,8 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
             ))}
           </motion.div>
         </div>
-      ) : (selectedBook === "ramayana" || selectedBook === "mahabharata" || selectedBook === "mahapuranas" || (selectedBook === "yajurveda" && yajurvedaBranch === "krishna")) && !selectedSarga && sargas.length > 0 ? (
-        // Sargas or Adhyayas selection view
+      ) : !selectedSarga && sargas.length > 0 ? (
+        // Sargas, Suktas, or Adhyayas selection view
         <div className="space-y-4 animate-fade-in">
           <div className="p-4 rounded-xl bg-amber-500/[0.03] border border-amber-500/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -1108,10 +1693,7 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
                 Viewing Verses
               </span>
               <h3 className="text-lg font-serif font-bold text-slate-100">
-              {(selectedBook === "ramayana" || selectedBook === "mahabharata" || (selectedBook === "yajurveda" && yajurvedaBranch === "krishna"))
-                ? `${getDivisionName(selectedBook, true)} ${selectedDivision.chapter_number}: ${selectedDivision.chapter_title}${selectedSarga ? ` - ${getSubdivisionName(selectedBook, true)} ${selectedSarga.display_number}` : ''}`
-                : `${getDivisionName(selectedBook, true)} ${selectedDivision.chapter_number}: ${selectedDivision.chapter_title}`
-              }
+                {`${getDivisionName(selectedBook, true)} ${selectedDivision.chapter_number}: ${selectedDivision.chapter_title}${selectedSarga && (sargas.length > 1 || selectedBook !== "upanishads") ? ` - ${getSubdivisionName(selectedBook, true)} ${selectedSarga.sarga_number}` : ''}`}
               </h3>
             </div>
             <div className="flex items-center gap-1.5 self-start sm:self-center">
@@ -1126,7 +1708,21 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
                   <span>Open in Reading Desk</span>
                 </button>
               )}
-              {/* Transliteration hidden as requested */}
+              {verses.some(v => Boolean(v.itx)) && (
+                <button
+                  id="toggle-transliteration-btn"
+                  onClick={() => setShowTransliteration(prev => !prev)}
+                  className={`px-3 py-1 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-1.5 cursor-pointer border ${
+                    showTransliteration
+                      ? "bg-amber-500 text-stone-950 border-amber-500 font-bold shadow-sm"
+                      : "bg-white/5 text-slate-300 hover:text-white border-white/10"
+                  }`}
+                  title="Toggle ITRANS (ITX) transliteration"
+                >
+                  <Languages className="w-3.5 h-3.5" />
+                  <span>{showTransliteration ? "Hide ITX" : "Show ITX"}</span>
+                </button>
+              )}
               <span className="text-xs font-mono bg-amber-500/10 text-amber-400 px-2.5 py-1 rounded-lg border border-amber-500/20 font-bold">
                 {loadingVerses ? "Loading..." : `${verses.length} Verses`}
               </span>
@@ -1149,10 +1745,10 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
           ) : (
             // Verses List
             <div className="space-y-3">
-              {verses.map((verse) => (
+              {verses.map((verse, vIdx) => (
                 <div
                   id={`verse-card-${verse.verse_number}`}
-                  key={verse.id}
+                  key={`${verse.id}_${vIdx}`}
                   className="bg-white/[0.02] border border-white/5 rounded-xl p-4 sm:p-5 flex gap-4 transition-all hover:bg-white/[0.03] hover:border-white/10"
                 >
                   <div className="flex-shrink-0">
@@ -1168,7 +1764,11 @@ export function GitaFirestoreView({ selectedBook: externalSelectedBook, onSelect
                       {verse.text}
                     </p>
 
-                    {/* Phonetic transliteration hidden as requested */}
+                    {showTransliteration && verse.itx && (
+                      <p className="text-xs sm:text-sm font-mono text-amber-300/90 leading-relaxed pt-1.5 border-t border-white/5 whitespace-pre-line">
+                        {verse.itx}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}

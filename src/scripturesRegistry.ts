@@ -6,6 +6,9 @@
 import { ScriptureBook } from "./types";
 import { UPANISHADS_108 } from "./data/upanishads";
 import { AGAMAS_200 } from "./data/agamas";
+import { UPANISHADS_CANON_BOOKS, UPANISHAD_108_KEYS } from "./data/upanishadsRegistry";
+
+export { UPANISHAD_108_KEYS, UPANISHADS_CANON_BOOKS };
 
 export const RELIGION_LABELS: Record<string, string> = {
   hinduism: "Hinduism",
@@ -131,6 +134,51 @@ export const SCRIPTURE_BOOKS: ScriptureBook[] = [
     imageCaption: "A sacred altar surrounded by glowing oil lamps and ancient manuscripts, representing the rich spiritual legacy of the 18 Mahapuranas."
   },
   {
+    key: "upapuranas",
+    title: "Upapuranas (उपपुराण)",
+    originalTitle: "उपपुराण",
+    religion: "hinduism",
+    description: "The traditional secondary Puranas (Upapuranas) of Hinduism detailing divine sagas, local traditions, pilgrimages, deity lore, and spiritual wisdom.",
+    divisionsName: "Purana",
+    divisionsCount: 18,
+    featuredPortions: [
+      { name: "1. Sanatkumara Purana (सनत्कुमार पुराण)", reference: "1", topicMessage: "Spiritual wisdom and devotion narrated by Sage Sanatkumara." },
+      { name: "2. Narasimha Purana (नारसिंह पुराण)", reference: "2", topicMessage: "Sacred lore of Lord Narasimha, Vishnu avatars, and devotion." },
+      { name: "3. Ganesha Purana (गणेश पुराण)", reference: "3", topicMessage: "Legends, avatars, and supreme worship of Lord Ganesha." },
+      { name: "4. Mudgala Purana (मुद्गल पुराणं)", reference: "4", topicMessage: "The eight manifestation forms of Lord Ganesha and philosophical teachings." },
+      { name: "5. Brihannaradiya Purana (बृहन्नारदीय पुराण)", reference: "5", topicMessage: "An Upapurana emphasizing devotion to Lord Vishnu, sacred pilgrimages, ethical duties, and spiritual vows." },
+      { name: "6. Kalika Purana (कालिका पुराण)", reference: "6", topicMessage: "Shakti worship, ritualistic lore, and Kamakhya temple traditions." },
+      { name: "7. Vayu Purana (वायु पुराण)", reference: "7", topicMessage: "Cosmology, solar lore, and Shaiva-Vayu traditions." },
+      { name: "8. Sivadharma Purana (शिवधर्म पुराण)", reference: "8", topicMessage: "Dharma, duties, and ethical observances for Shaiva devotees." },
+      { name: "9. Manava Purana (मानव पुराण)", reference: "9", topicMessage: "Sacred code of human life, creation, and duties." },
+      { name: "10. Devi Bhagavata Purana (श्रीमद् देवी भागवत पुराण)", reference: "10", topicMessage: "Glorification of the Divine Mother (Shakti) as the supreme ultimate reality across 12 Skandhas." },
+      { name: "11. Vishnudharmottara Purana (विष्णुधर्म पुराण)", reference: "11", topicMessage: "Vaishnava ethics, vows, arts, iconography, and spiritual practices." },
+      { name: "12. Sivarahasya Purana (शिवरहस्य पुराण)", reference: "12", topicMessage: "Esoteric Shaiva knowledge, sacred places, and devotion to Lord Shiva." },
+      { name: "13. Parashara Purana (पराशर पुराण)", reference: "13", topicMessage: "Teachings of Sage Parashara on dharma, cosmology, and spiritual wisdom." },
+      { name: "14. Saurapurana (सूर्य पुराण)", reference: "14", topicMessage: "Dedicated to Surya (the Sun God) and solar spiritual traditions." },
+      { name: "15. Nilamata Purana (नीलमत पुराण)", reference: "15", topicMessage: "Sacred history, lore, festivals, and culture of Kashmir." },
+      { name: "16. Harivamsha Purana (हरिवंश पुराण)", reference: "16", topicMessage: "The lineage and life story of Lord Krishna, appendage to Mahabharata." },
+      { name: "17. Malla Purana (मल्लपुराण)", reference: "17", topicMessage: "Traditional lore, physical culture, wrestling ethics, and health." },
+      { name: "18. Bhargava Purana (भार्गव पुराण)", reference: "18", topicMessage: "Sacred wisdom and tales preserved in the lineage of Sage Bhrigu." }
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1543157145-f78c636d023d?auto=format&fit=crop&w=600&q=80",
+    imageCaption: "Sacred palm-leaf manuscripts and ancient texts preserving the rich spiritual legacy of the Upapuranas."
+  },
+  {
+    key: "brihan_naradiya_purana",
+    title: "Brihan-Naradiya Purana",
+    originalTitle: "बृहन्नारदीयपुराणम्",
+    religion: "hinduism",
+    description: "An Upapurana emphasizing devotion to Lord Vishnu, sacred pilgrimages, ethical duties, and spiritual vows.",
+    divisionsName: "Chapter",
+    divisionsCount: 1,
+    featuredPortions: [
+      { name: "Chapter 1", reference: "1", topicMessage: "Vaishnava devotion, pilgrimages, and sacred vows." }
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1543157145-f78c636d023d?auto=format&fit=crop&w=600&q=80",
+    imageCaption: "Ancient Vaishnava manuscripts detailing spiritual vows and pilgrimages."
+  },
+  {
     key: "bhagavad_gita",
     title: "Bhagavad Gita",
     originalTitle: "भगवद्गीता",
@@ -183,7 +231,7 @@ export const SCRIPTURE_BOOKS: ScriptureBook[] = [
   },
   {
     key: "upanishads",
-    title: "Principal Upanishads",
+    title: "Principal Upanishads (उपनिषद्)",
     originalTitle: "उपनिषद्",
     religion: "hinduism",
     description: "Philosophical treatises nested within the ancient Vedas. They contain the foundation of Vedanta, exploring the non-dual nature of ultimate reality (Brahman), the innermost self of humanity (Atman), and how liberation is attained through realization.",
@@ -197,6 +245,8 @@ export const SCRIPTURE_BOOKS: ScriptureBook[] = [
     imageUrl: "https://images.unsplash.com/photo-1501854140801-50d01698950b?auto=format&fit=crop&w=600&q=80",
     imageCaption: "A pristine flowing mountain stream surrounded by lush green forests, representing Upanishadic silence, natural oneness, and supreme spiritual contemplation."
   },
+  // 108 Traditional Muktika Principal Upanishads from Firestore
+  ...UPANISHADS_CANON_BOOKS,
   {
     key: "dharmashastras",
     title: "Dharmashastras",
@@ -367,12 +417,12 @@ export const SCRIPTURE_BOOKS: ScriptureBook[] = [
   },
   {
     key: "samaveda",
-    title: "Samaveda",
+    title: "Samaveda (सामवेद)",
     originalTitle: "सामवेद",
     religion: "hinduism",
     description: "The Veda of Melodies and Chants. Comprising almost entirely of verses selected from the Rigveda but set to beautiful musical notations (Gana), it is chanting's oldest repository. Lord Krishna in the Bhagavad Gita states 'Of the Vedas, I am the Samaveda', highlighting its supreme musical and spiritual devotion.",
-    divisionsName: "Part / Chapter",
-    divisionsCount: 6,
+    divisionsName: "Chapter",
+    divisionsCount: 40,
     featuredPortions: [
       { name: "Part 1: Agneya Kanda (Chants to Agni)", reference: "1", topicMessage: "Invoking Agni, the sacred fire of consciousness, representing cognitive clarity and divine mediation." },
       { name: "Part 2: Aindra Kanda I (Chants to Indra I)", reference: "2", topicMessage: "Chants of inner vitality, cosmic strength, and sensory empowerment dedicated to Lord Indra." },
@@ -386,12 +436,12 @@ export const SCRIPTURE_BOOKS: ScriptureBook[] = [
   },
   {
     key: "atharvaveda",
-    title: "Atharvaveda",
+    title: "Atharvaveda (अथर्ववेद)",
     originalTitle: "अथर्ववेद",
     religion: "hinduism",
     description: "The Veda of Everyday Life and Wisdom. Departing from ritual-heavy texts, it compiles 20 books (Kandas) of domestic prayers, healing charms, herbal medical guidelines, statecraft duties, and deep environmental hymns like the renowned Prithvi Sukta celebrating Mother Earth.",
-    divisionsName: "Book (Kanda)",
-    divisionsCount: 20,
+    divisionsName: "Chapter",
+    divisionsCount: 40,
     featuredPortions: [
       { name: "Book 1: Bhaishajya & Vac (Healing & Divine Speech)", reference: "1", topicMessage: "Chants for curing physical diseases, restoring health, and invoking Vac (divine speech) for mental clarity and strength." },
       { name: "Book 2: Ayushya (Longevity & Vitality)", reference: "2", topicMessage: "Divine prayers for a full life span, physical strength, protection from negative influences, and bodily vigor." },
@@ -1053,6 +1103,36 @@ export const SCRIPTURE_BOOKS: ScriptureBook[] = [
     ],
     imageUrl: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=600&q=80",
     imageCaption: "Gleaming stars and golden nebulae, representing the deep astronomical and light theories of Sage Marichi."
+  },
+  {
+    key: "harivamsha_purana",
+    title: "Harivamsha Purana (Upapurana)",
+    originalTitle: "हरिवंश पुराण",
+    religion: "hinduism",
+    description: "An essential Upapurana and valuable appendix to the Mahabharata. It details the genealogy, childhood, and divine lilas of Lord Krishna, as well as the creation of the cosmos.",
+    divisionsName: "Parva",
+    divisionsCount: 3,
+    featuredPortions: [
+      { name: "Harivamsha Parva", reference: "1", topicMessage: "Genealogy of Hari and the early creation accounts." },
+      { name: "Vishnu Parva", reference: "2", topicMessage: "Life and divine exploits of Lord Krishna in Gokula and Mathura." },
+      { name: "Bhavishya Parva", reference: "3", topicMessage: "Prophecies of future ages and spiritual liberation." }
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1612240498936-65f5101365d2?auto=format&fit=crop&w=600&q=80",
+    imageCaption: "Sacred imagery depicting the divine life and lineage of Lord Krishna."
+  },
+  {
+    key: "malla_purana",
+    title: "Malla Purana (Upapurana)",
+    originalTitle: "मल्लपुराण",
+    religion: "hinduism",
+    description: "An Upapurana associated with physical culture, athletics, wrestling (Malla-yuddha), dietetics, and holistic health practices aligned with spiritual discipline.",
+    divisionsName: "Chapter",
+    divisionsCount: 18,
+    featuredPortions: [
+      { name: "Chapter 1: Physical Culture and Ethics", reference: "1", topicMessage: "Principles of physical strength, discipline, and health as a vessel for spiritual realization." }
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80",
+    imageCaption: "Ancient manuscript depicting physical discipline and traditional health science."
   },
 
   // --- ISLAM ---

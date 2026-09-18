@@ -35,6 +35,7 @@ import {
   orderBy
 } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
+import { UPANISHADS_108 } from "./data/upanishads";
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
@@ -159,7 +160,7 @@ export async function logoutUser(): Promise<void> {
 // Ensure first-connection connection test (from firebase-integration skill)
 async function testConnection() {
   try {
-    await getDoc(doc(db, "test", "connection"));
+    await safeGetDoc(doc(db, "test", "connection"));
   } catch (error) {
     console.warn("Firebase test connection warning:", error);
   }
@@ -167,7 +168,7 @@ async function testConnection() {
 // Commented out automatic call to avoid unsolicited network requests on load inside iframe
 // testConnection();
 
-// FIRESTORE OPERATIONS ERROR WRAPPER (from firebase-integration skill)
+// FIRESTORE OPERATIONS ERROR WRAPPER & QUOTA SAFEGUARDS
 enum OperationType {
   CREATE = "create",
   UPDATE = "update",
@@ -189,7 +190,65 @@ interface FirestoreErrorInfo {
   };
 }
 
+let isFirestoreQuotaExhausted = false;
+
+export function isQuotaExhaustedError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err?.code || "").toLowerCase();
+  const msg = String(err?.message || "").toLowerCase();
+  return code.includes("resource-exhausted") || msg.includes("quota exceeded") || msg.includes("resource-exhausted");
+}
+
+export function markQuotaExhausted() {
+  if (!isFirestoreQuotaExhausted) {
+    isFirestoreQuotaExhausted = true;
+    console.warn("[Firestore] Daily quota reached (resource-exhausted). Switching to local fallback mode.");
+  }
+}
+
+export function checkIsQuotaExhausted(): boolean {
+  return isFirestoreQuotaExhausted;
+}
+
+export async function safeGetDocs(queryOrRef: any): Promise<any> {
+  if (isFirestoreQuotaExhausted) {
+    return { empty: true, docs: [], size: 0, forEach: () => {} };
+  }
+  try {
+    const snap = await getDocs(queryOrRef);
+    return snap;
+  } catch (err: any) {
+    if (isQuotaExhaustedError(err)) {
+      markQuotaExhausted();
+      return { empty: true, docs: [], size: 0, forEach: () => {} };
+    }
+    console.warn("[Firestore] Query error caught safely in safeGetDocs:", err);
+    return { empty: true, docs: [], size: 0, forEach: () => {} };
+  }
+}
+
+export async function safeGetDoc(docRef: any): Promise<any> {
+  if (isFirestoreQuotaExhausted) {
+    return { exists: () => false, data: () => null };
+  }
+  try {
+    return await getDoc(docRef);
+  } catch (err: any) {
+    if (isQuotaExhaustedError(err)) {
+      markQuotaExhausted();
+      return { exists: () => false, data: () => null };
+    }
+    console.warn("[Firestore] Doc error caught safely in safeGetDoc:", err);
+    return { exists: () => false, data: () => null };
+  }
+}
+
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  if (isQuotaExhaustedError(error)) {
+    markQuotaExhausted();
+    console.warn(`[Firestore Quota Exceeded] Operation '${operationType}' on path '${path}' failed due to daily quota limits. Continuing in local fallback mode.`);
+    return;
+  }
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -202,7 +261,6 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   };
   console.error("Firestore Error: ", JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 }
 
 // --- DATABASE HANDLERS ---
@@ -294,9 +352,9 @@ export async function getFavorites(): Promise<FirestoreFavorite[]> {
       collection(db, path),
       where("userId", "==", user.uid)
     );
-    const snapshot = await getDocs(q);
+    const snapshot = await safeGetDocs(q);
     const favorites: FirestoreFavorite[] = [];
-    snapshot.forEach((docSnap) => {
+    snapshot.forEach((docSnap: any) => {
       favorites.push({
         id: docSnap.id,
         ...docSnap.data()
@@ -399,7 +457,7 @@ export async function getNotesFromFirestore(): Promise<FirestoreNote[]> {
       collection(db, path),
       where("userId", "==", user.uid)
     );
-    const snapshot = await getDocs(q);
+    const snapshot = await safeGetDocs(q);
     const notesList: FirestoreNote[] = [];
     snapshot.forEach((docSnap) => {
       notesList.push({
@@ -504,7 +562,7 @@ export async function getCommentsForVerse(verseRef: string): Promise<FirestoreCo
       where("verseRef", "==", verseRef),
       where("isPrivate", "==", false)
     );
-    const publicSnapshot = await getDocs(publicQ);
+    const publicSnapshot = await safeGetDocs(publicQ);
     const commentsList: FirestoreComment[] = [];
     
     publicSnapshot.forEach((docSnap) => {
@@ -522,7 +580,7 @@ export async function getCommentsForVerse(verseRef: string): Promise<FirestoreCo
         where("isPrivate", "==", true),
         where("userId", "==", user.uid)
       );
-      const privateSnapshot = await getDocs(privateQ);
+      const privateSnapshot = await safeGetDocs(privateQ);
       privateSnapshot.forEach((docSnap) => {
         commentsList.push({
           id: docSnap.id,
@@ -608,7 +666,7 @@ export async function deleteCollectionFromFirestore(collectionId: string): Promi
       collection(db, itemsPath),
       where("collectionId", "==", collectionId)
     );
-    const snapshot = await getDocs(q);
+    const snapshot = await safeGetDocs(q);
     snapshot.forEach(async (docSnap) => {
       await deleteDoc(doc(db, itemsPath, docSnap.id));
     });
@@ -627,7 +685,7 @@ export async function getCollectionsFromFirestore(): Promise<FirestoreCollection
       collection(db, path),
       where("userId", "==", user.uid)
     );
-    const snapshot = await getDocs(q);
+    const snapshot = await safeGetDocs(q);
     const list: FirestoreCollection[] = [];
     snapshot.forEach((docSnap) => {
       list.push({
@@ -689,7 +747,7 @@ export async function getCollectionVersesFirestore(): Promise<FirestoreCollectio
       collection(db, path),
       where("userId", "==", user.uid)
     );
-    const snapshot = await getDocs(q);
+    const snapshot = await safeGetDocs(q);
     const list: FirestoreCollectionVerse[] = [];
     snapshot.forEach((docSnap) => {
       list.push({
@@ -781,7 +839,7 @@ export async function deleteUserCustomImage(itemKey: string): Promise<void> {
 export async function getUserCustomImages(): Promise<FirestoreUserCustomImage[]> {
   const path = "user_custom_images";
   try {
-    const snapshot = await getDocs(collection(db, path));
+    const snapshot = await safeGetDocs(collection(db, path));
     const list: FirestoreUserCustomImage[] = [];
     snapshot.forEach((docSnap) => {
       list.push({
@@ -829,7 +887,7 @@ export async function saveGalleryLockSetting(isLocked: boolean): Promise<void> {
 export async function getGalleryLockSetting(): Promise<boolean> {
   const path = "system_settings/gallery";
   try {
-    const docSnap = await getDoc(doc(db, "system_settings", "gallery"));
+    const docSnap = await safeGetDoc(doc(db, "system_settings", "gallery"));
     if (docSnap.exists()) {
       return !!docSnap.data().isLocked;
     }
@@ -887,7 +945,7 @@ export async function getAdminAuditLogs(): Promise<AdminAuditLog[]> {
       collection(db, path),
       orderBy("timestamp", "desc")
     );
-    const snapshot = await getDocs(q);
+    const snapshot = await safeGetDocs(q);
     const logs: AdminAuditLog[] = [];
     snapshot.forEach((docSnap) => {
       const data = docSnap.data();
@@ -952,7 +1010,7 @@ export async function migrateDataToNewDatabase(
   // 1. Migrate parent 'scriptures' and their subcollection 'verses'
   statusCallback("📂 Scanning parent 'scriptures' collection...");
   try {
-    const oldScripturesSnap = await getDocs(collection(oldDb, "scriptures"));
+    const oldScripturesSnap = await safeGetDocs(collection(oldDb, "scriptures"));
     if (!oldScripturesSnap.empty) {
       statusCallback(`🔄 Found ${oldScripturesSnap.size} books in 'scriptures'. Migrating parent documents and subcollections...`);
       for (const scriptureDoc of oldScripturesSnap.docs) {
@@ -963,7 +1021,7 @@ export async function migrateDataToNewDatabase(
         totalMigrated++;
         
         // Query subcollection 'verses'
-        const oldVersesSnap = await getDocs(collection(oldDb, "scriptures", bookId, "verses"));
+        const oldVersesSnap = await safeGetDocs(collection(oldDb, "scriptures", bookId, "verses"));
         if (!oldVersesSnap.empty) {
           statusCallback(`  🔄 Migrating ${oldVersesSnap.size} verses for book '${bookId}'...`);
           let verseCount = 0;
@@ -986,7 +1044,7 @@ export async function migrateDataToNewDatabase(
   // 2. Migrate flat 'verses' collection
   statusCallback("📂 Scanning flat 'verses' collection...");
   try {
-    const oldVersesSnap = await getDocs(collection(oldDb, "verses"));
+    const oldVersesSnap = await safeGetDocs(collection(oldDb, "verses"));
     if (!oldVersesSnap.empty) {
       statusCallback(`🔄 Found ${oldVersesSnap.size} flat verses in 'verses'. Migrating...`);
       let verseCount = 0;
@@ -1014,9 +1072,9 @@ export async function migrateDataToNewDatabase(
       let oldSnapshot;
       if (["favorites", "notes", "collections", "collection_verses"].includes(colName)) {
         const q = query(collection(oldDb, colName), where("userId", "==", user.uid));
-        oldSnapshot = await getDocs(q);
+        oldSnapshot = await safeGetDocs(q);
       } else {
-        oldSnapshot = await getDocs(collection(oldDb, colName));
+        oldSnapshot = await safeGetDocs(collection(oldDb, colName));
       }
 
       if (oldSnapshot.empty) {
@@ -1052,13 +1110,13 @@ export async function fetchYajurvedaBranchNames(): Promise<{ shukla: string; kri
   let krishna = "Krishna (Black)";
   try {
     const shuklaRef = doc(db, "Holy Scripture Books", "Hinduism", "Yajurveda (यजुर्वेदः)", "shukla");
-    const shuklaSnap = await getDoc(shuklaRef);
+    const shuklaSnap = await safeGetDoc(shuklaRef);
     if (shuklaSnap.exists() && shuklaSnap.data()?.branch_name) {
       shukla = String(shuklaSnap.data().branch_name);
     }
 
     const krishnaRef = doc(db, "Holy Scripture Books", "Hinduism", "Yajurveda (यजुर्वेदः)", "krishna");
-    const krishnaSnap = await getDoc(krishnaRef);
+    const krishnaSnap = await safeGetDoc(krishnaRef);
     if (krishnaSnap.exists() && krishnaSnap.data()?.branch_name) {
       krishna = String(krishnaSnap.data().branch_name);
     }
@@ -1068,6 +1126,32 @@ export async function fetchYajurvedaBranchNames(): Promise<{ shukla: string; kri
   return { shukla, krishna };
 }
 
+// Global in-memory and session cache to prevent redundant Firestore reads
+const inMemoryScriptureCache = new Map<string, any>();
+
+function getCachedScripture(key: string): any | null {
+  if (inMemoryScriptureCache.has(key)) {
+    return inMemoryScriptureCache.get(key);
+  }
+  try {
+    const sess = sessionStorage.getItem("scripture_cache_" + key);
+    if (sess) {
+      const parsed = JSON.parse(sess);
+      inMemoryScriptureCache.set(key, parsed);
+      return parsed;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function setCachedScripture(key: string, data: any): void {
+  if (!data) return;
+  inMemoryScriptureCache.set(key, data);
+  try {
+    sessionStorage.setItem("scripture_cache_" + key, JSON.stringify(data));
+  } catch (e) {}
+}
+
 /**
  * Dynamic Firestore Scripture Loader
  * Checks if the user uploaded canonical scriptures (like Bhagavad Gita or Rigveda)
@@ -1075,6 +1159,25 @@ export async function fetchYajurvedaBranchNames(): Promise<{ shukla: string; kri
  * If found, displays them instead of calling the Gemini generator.
  */
 export async function fetchScriptureFromFirestore(
+  bookKey: string,
+  divisionNumber: number,
+  options?: any
+): Promise<any | null> {
+  const cacheKey = `scrip_${bookKey}_${divisionNumber}_${JSON.stringify(options || {})}`;
+  const cached = getCachedScripture(cacheKey);
+  if (cached) {
+    console.log(`[Firestore Scripture Loader] Cache hit for '${cacheKey}'`);
+    return cached;
+  }
+
+  const result = await _fetchScriptureFromFirestoreUncached(bookKey, divisionNumber, options);
+  if (result) {
+    setCachedScripture(cacheKey, result);
+  }
+  return result;
+}
+
+async function _fetchScriptureFromFirestoreUncached(
   bookKey: string,
   divisionNumber: number,
   options?: any
@@ -1094,10 +1197,10 @@ export async function fetchScriptureFromFirestore(
         let snap;
         try {
           const q = query(directColRef, orderBy("chapter_number", "asc"));
-          snap = await getDocs(q);
+          snap = await safeGetDocs(q);
         } catch (queryChErr) {
           console.warn("[Firestore Scripture Loader] Failed direct chapter query with orderBy, trying unordered:", queryChErr);
-          snap = await getDocs(directColRef);
+          snap = await safeGetDocs(directColRef);
         }
         
         if (snap.empty) {
@@ -1105,10 +1208,10 @@ export async function fetchScriptureFromFirestore(
           directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Bhagavad Gita (श्रीमद्भगवद्गीता)");
           try {
             const q = query(directColRef, orderBy("chapter_number", "asc"));
-            snap = await getDocs(q);
+            snap = await safeGetDocs(q);
           } catch (queryChErr) {
             console.warn("[Firestore Scripture Loader] Failed fallback chapter query with orderBy, trying unordered:", queryChErr);
-            snap = await getDocs(directColRef);
+            snap = await safeGetDocs(directColRef);
           }
         }
         
@@ -1116,22 +1219,29 @@ export async function fetchScriptureFromFirestore(
           const match = snap.docs.find((docSnap) => {
             const data = docSnap.data();
             const chNum = data.chapter_number ?? data.chapterNumber ?? data.chapter ?? data.number ?? docSnap.id;
-            return Number(chNum) === div;
+            const parsedId = Number(docSnap.id.replace(/[^0-9]/g, ""));
+            return Number(chNum) === div || parsedId === div;
           });
           
           if (match) {
-            const versesCol = collection(match.ref, "verses");
-            let versesSnap;
-            try {
-              const q = query(versesCol, orderBy("verse_number", "asc"));
-              versesSnap = await getDocs(q);
-            } catch (queryVerr) {
-              console.warn("[Firestore Scripture Loader] Failed direct verses query with orderBy, trying unordered:", queryVerr);
-              versesSnap = await getDocs(versesCol);
-            }
-            if (!versesSnap.empty) {
-              console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses for Bhagavad Gita chapter ${div} in direct path: 'Holy Scripture Books' -> 'Hinduism' -> 'Bhagavad Gita'`);
-              return formatFirestoreVerses(versesSnap.docs, div, bookKey);
+            for (const vSubcol of ["verses", "Verses", "verse", "slokas", "Shlokas", "shlokas"]) {
+              const versesCol = collection(match.ref, vSubcol);
+              let versesSnap;
+              try {
+                const q = query(versesCol, orderBy("verse_number", "asc"));
+                versesSnap = await safeGetDocs(q);
+              } catch (queryVerr) {
+                try {
+                  const q = query(versesCol, orderBy("number", "asc"));
+                  versesSnap = await safeGetDocs(q);
+                } catch {
+                  versesSnap = await safeGetDocs(versesCol);
+                }
+              }
+              if (versesSnap && !versesSnap.empty) {
+                console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses for Bhagavad Gita chapter ${div} in direct path: 'Holy Scripture Books' -> 'Hinduism' -> 'Bhagavad Gita' -> '${vSubcol}'`);
+                return formatFirestoreVerses(versesSnap.docs, div, bookKey);
+              }
             }
           }
         }
@@ -1148,10 +1258,10 @@ export async function fetchScriptureFromFirestore(
         let snap;
         try {
           const q = query(directColRef, orderBy("mandal_number", "asc"));
-          snap = await getDocs(q);
+          snap = await safeGetDocs(q);
         } catch (queryChErr) {
           console.warn("[Firestore Scripture Loader] Failed direct Rigveda mandala query with orderBy, trying unordered:", queryChErr);
-          snap = await getDocs(directColRef);
+          snap = await safeGetDocs(directColRef);
         }
         
         if (snap.empty) {
@@ -1159,10 +1269,10 @@ export async function fetchScriptureFromFirestore(
           directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Rigveda");
           try {
             const q = query(directColRef, orderBy("mandal_number", "asc"));
-            snap = await getDocs(q);
+            snap = await safeGetDocs(q);
           } catch (queryChErr) {
             console.warn("[Firestore Scripture Loader] Failed fallback Rigveda mandala query, trying unordered:", queryChErr);
-            snap = await getDocs(directColRef);
+            snap = await safeGetDocs(directColRef);
           }
         }
         
@@ -1175,18 +1285,84 @@ export async function fetchScriptureFromFirestore(
           });
           
           if (match) {
-            const versesCol = collection(match.ref, "verses");
-            let versesSnap;
-            try {
-              const q = query(versesCol, orderBy("verse_number", "asc"));
-              versesSnap = await getDocs(q);
-            } catch (queryVerr) {
-              console.warn("[Firestore Scripture Loader] Failed direct Rigveda verses query with orderBy, trying unordered:", queryVerr);
-              versesSnap = await getDocs(versesCol);
+            for (const vSubcol of ["verses", "Verses", "verse", "mantras", "richas", "suktas"]) {
+              const versesCol = collection(match.ref, vSubcol);
+              let versesSnap;
+              try {
+                const q = query(versesCol, orderBy("verse_number", "asc"));
+                versesSnap = await safeGetDocs(q);
+              } catch (queryVerr) {
+                try {
+                  const q = query(versesCol, orderBy("number", "asc"));
+                  versesSnap = await safeGetDocs(q);
+                } catch {
+                  versesSnap = await safeGetDocs(versesCol);
+                }
+              }
+              if (versesSnap && !versesSnap.empty) {
+                console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses for Rigveda mandala ${div} in direct path: 'Holy Scripture Books' -> 'Hinduism' -> 'Rigveda (ऋग्वेद)' -> '${vSubcol}'`);
+                return formatFirestoreVerses(versesSnap.docs, div, bookKey);
+              }
             }
-            if (!versesSnap.empty) {
-              console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses for Rigveda mandala ${div} in direct path: 'Holy Scripture Books' -> 'Hinduism' -> 'Rigveda (ऋग्वेद)'`);
-              return formatFirestoreVerses(versesSnap.docs, div, bookKey);
+
+            // Check nested suktas / hymns / anuvakas -> verses
+            for (const subcolName of ["suktas", "Suktas", "hymns", "anuvakas", "chapters"]) {
+              const sCol = collection(match.ref, subcolName);
+              let sSnap;
+              try {
+                sSnap = await safeGetDocs(query(sCol, orderBy("sukta_number", "asc")));
+              } catch {
+                try {
+                  sSnap = await safeGetDocs(query(sCol, orderBy("number", "asc")));
+                } catch {
+                  sSnap = await safeGetDocs(sCol);
+                }
+              }
+              if (sSnap && !sSnap.empty) {
+                const nestedPromises = sSnap.docs.map(async (sDoc, sIdx) => {
+                  const sData = sDoc.data();
+                  const sNum = Number(sData.sukta_number ?? sData.sukta ?? sData.chapter_number ?? sData.number ?? (sDoc.id.replace(/[^0-9]/g, "") || (sIdx + 1)));
+                  for (const vSub of ["verses", "Verses", "verse", "mantras", "richas"]) {
+                    const vCol = collection(sDoc.ref, vSub);
+                    let vSnap;
+                    try {
+                      vSnap = await safeGetDocs(query(vCol, orderBy("verse_number", "asc")));
+                    } catch {
+                      vSnap = await safeGetDocs(vCol);
+                    }
+                    if (vSnap && !vSnap.empty) {
+                      return vSnap.docs.map((docSnap, vIdx) => {
+                        const d = docSnap.data();
+                        const vNum = Number((d.verse_number ?? d.verseNumber ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (vIdx + 1));
+                        return {
+                          number: `${div}.${sNum}.${vNum}`,
+                          originalText: extractVerseTextFirestore(d),
+                          transliteration: extractTranslitFirestore(d),
+                          translation: extractTranslFirestore(d, extractVerseTextFirestore(d))
+                        };
+                      });
+                    }
+                  }
+                  return [];
+                });
+                const nested = await Promise.all(nestedPromises);
+                const flatVerses = nested.flat();
+                if (flatVerses.length > 0) {
+                  return {
+                    introSummary: `Loaded Mandala ${div} (Rigveda) directly from your custom database 'interfaith-108' in Firestore.`,
+                    verses: flatVerses,
+                    commentary: `### Scholarly Commentary\n\nThis Rigveda text was retrieved from your custom uploaded repository inside Firestore ('interfaith-108').`,
+                    interfaithParallels: [
+                      {
+                        religion: "Interfaith Insights",
+                        source: "Academy Ledger",
+                        similarity: "Matches with verified spiritual insights from world traditions.",
+                        lesson: "Always follow the path of truth, righteousness, and devotion."
+                      }
+                    ]
+                  };
+                }
+              }
             }
           }
         }
@@ -1203,14 +1379,14 @@ export async function fetchScriptureFromFirestore(
         let snap;
         try {
           const q = query(directColRef, orderBy("mandal_number", "asc"));
-          snap = await getDocs(q);
+          snap = await safeGetDocs(q);
         } catch (queryChErr) {
           try {
             const q = query(directColRef, orderBy("kanda_number", "asc"));
-            snap = await getDocs(q);
+            snap = await safeGetDocs(q);
           } catch (queryChErr2) {
             console.warn("[Firestore Scripture Loader] Failed direct Ramayana (रामायणम्) kanda query with orderBy, trying unordered:", queryChErr2);
-            snap = await getDocs(directColRef);
+            snap = await safeGetDocs(directColRef);
           }
         }
         
@@ -1219,13 +1395,13 @@ export async function fetchScriptureFromFirestore(
           directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Ramayana (रामायण)");
           try {
             const q = query(directColRef, orderBy("mandal_number", "asc"));
-            snap = await getDocs(q);
+            snap = await safeGetDocs(q);
           } catch (queryChErr) {
             try {
               const q = query(directColRef, orderBy("kanda_number", "asc"));
-              snap = await getDocs(q);
+              snap = await safeGetDocs(q);
             } catch (queryChErr2) {
-              snap = await getDocs(directColRef);
+              snap = await safeGetDocs(directColRef);
             }
           }
         }
@@ -1235,13 +1411,13 @@ export async function fetchScriptureFromFirestore(
           directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Ramayana");
           try {
             const q = query(directColRef, orderBy("mandal_number", "asc"));
-            snap = await getDocs(q);
+            snap = await safeGetDocs(q);
           } catch (queryChErr) {
             try {
               const q = query(directColRef, orderBy("kanda_number", "asc"));
-              snap = await getDocs(q);
+              snap = await safeGetDocs(q);
             } catch (queryChErr2) {
-              snap = await getDocs(directColRef);
+              snap = await safeGetDocs(directColRef);
             }
           }
         }
@@ -1259,10 +1435,10 @@ export async function fetchScriptureFromFirestore(
             let sargasSnap;
             try {
               const q = query(sargasCol, orderBy("sarga_number", "asc"));
-              sargasSnap = await getDocs(q);
+              sargasSnap = await safeGetDocs(q);
             } catch (queryVerr) {
               console.warn("[Firestore Scripture Loader] Failed direct Ramayana sargas query with orderBy sarga_number, trying unordered:", queryVerr);
-              sargasSnap = await getDocs(sargasCol);
+              sargasSnap = await safeGetDocs(sargasCol);
             }
             if (!sargasSnap.empty) {
               console.log(`[Firestore Scripture Loader] Hit: Found ${sargasSnap.size} sargas for Ramayana kanda ${div} in direct path. Loading nested verses...`);
@@ -1276,9 +1452,9 @@ export async function fetchScriptureFromFirestore(
                 let versesSnap;
                 try {
                   const q = query(versesCol, orderBy("verse_number", "asc"));
-                  versesSnap = await getDocs(q);
+                  versesSnap = await safeGetDocs(q);
                 } catch (err) {
-                  versesSnap = await getDocs(versesCol);
+                  versesSnap = await safeGetDocs(versesCol);
                 }
                 
                 return versesSnap.docs.map((vDoc) => {
@@ -1323,6 +1499,20 @@ export async function fetchScriptureFromFirestore(
                   }
                 ]
               };
+            } else {
+              // Direct verses under kanda
+              for (const vSub of ["verses", "Verses", "verse", "slokas", "shlokas"]) {
+                const vCol = collection(match.ref, vSub);
+                let vSnap;
+                try {
+                  vSnap = await safeGetDocs(query(vCol, orderBy("verse_number", "asc")));
+                } catch {
+                  vSnap = await safeGetDocs(vCol);
+                }
+                if (vSnap && !vSnap.empty) {
+                  return formatFirestoreVerses(vSnap.docs, div, bookKey);
+                }
+              }
             }
           }
         }
@@ -1339,14 +1529,14 @@ export async function fetchScriptureFromFirestore(
         let snap;
         try {
           const q = query(directColRef, orderBy("parva_number", "asc"));
-          snap = await getDocs(q);
+          snap = await safeGetDocs(q);
         } catch (queryChErr) {
           try {
             const q = query(directColRef, orderBy("chapter_number", "asc"));
-            snap = await getDocs(q);
+            snap = await safeGetDocs(q);
           } catch (queryChErr2) {
             console.warn("[Firestore Scripture Loader] Failed direct Mahabharata parva query with orderBy, trying unordered:", queryChErr2);
-            snap = await getDocs(directColRef);
+            snap = await safeGetDocs(directColRef);
           }
         }
         
@@ -1355,13 +1545,13 @@ export async function fetchScriptureFromFirestore(
           directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Mahabharata");
           try {
             const q = query(directColRef, orderBy("parva_number", "asc"));
-            snap = await getDocs(q);
+            snap = await safeGetDocs(q);
           } catch (queryChErr) {
             try {
               const q = query(directColRef, orderBy("chapter_number", "asc"));
-              snap = await getDocs(q);
+              snap = await safeGetDocs(q);
             } catch (queryChErr2) {
-              snap = await getDocs(directColRef);
+              snap = await safeGetDocs(directColRef);
             }
           }
         }
@@ -1379,14 +1569,14 @@ export async function fetchScriptureFromFirestore(
             let adhyayasSnap;
             try {
               const q = query(adhyayasCol, orderBy("adhyaya_number", "asc"));
-              adhyayasSnap = await getDocs(q);
+              adhyayasSnap = await safeGetDocs(q);
             } catch (queryVerr) {
               try {
                 const q = query(adhyayasCol, orderBy("chapter_number", "asc"));
-                adhyayasSnap = await getDocs(q);
+                adhyayasSnap = await safeGetDocs(q);
               } catch (queryVerr2) {
                 console.warn("[Firestore Scripture Loader] Failed direct Mahabharata adhyayas query with orderBy, trying unordered:", queryVerr2);
-                adhyayasSnap = await getDocs(adhyayasCol);
+                adhyayasSnap = await safeGetDocs(adhyayasCol);
               }
             }
             
@@ -1402,9 +1592,9 @@ export async function fetchScriptureFromFirestore(
                 let versesSnap;
                 try {
                   const q = query(versesCol, orderBy("verse_number", "asc"));
-                  versesSnap = await getDocs(q);
+                  versesSnap = await safeGetDocs(q);
                 } catch (err) {
-                  versesSnap = await getDocs(versesCol);
+                  versesSnap = await safeGetDocs(versesCol);
                 }
                 
                 return versesSnap.docs.map((vDoc) => {
@@ -1413,9 +1603,9 @@ export async function fetchScriptureFromFirestore(
                   const refVal = vData.reference ? String(vData.reference) : `${div}.${aNum}.${vNum}`;
                   return {
                     number: refVal,
-                    originalText: vData.text ?? vData.originalText ?? vData.cleanText ?? vData.text_content ?? "",
-                    transliteration: vData.itx || vData.transliteration || "",
-                    translation: vData.translation || vData.english || ""
+                    originalText: extractVerseTextFirestore(vData),
+                    transliteration: extractTranslitFirestore(vData),
+                    translation: extractTranslFirestore(vData, extractVerseTextFirestore(vData))
                   };
                 });
               });
@@ -1449,6 +1639,20 @@ export async function fetchScriptureFromFirestore(
                   }
                 ]
               };
+            } else {
+              // Direct verses under parva
+              for (const vSub of ["verses", "Verses", "verse", "slokas", "shlokas"]) {
+                const vCol = collection(match.ref, vSub);
+                let vSnap;
+                try {
+                  vSnap = await safeGetDocs(query(vCol, orderBy("verse_number", "asc")));
+                } catch {
+                  vSnap = await safeGetDocs(vCol);
+                }
+                if (vSnap && !vSnap.empty) {
+                  return formatFirestoreVerses(vSnap.docs, div, bookKey);
+                }
+              }
             }
           }
         }
@@ -1473,9 +1677,9 @@ export async function fetchScriptureFromFirestore(
           const chaptersColRef = collection(shuklaDocRef, "chapters");
           let chapSnap;
           try {
-            chapSnap = await getDocs(query(chaptersColRef, orderBy("chapter_number", "asc")));
+            chapSnap = await safeGetDocs(query(chaptersColRef, orderBy("chapter_number", "asc")));
           } catch (e) {
-            chapSnap = await getDocs(chaptersColRef);
+            chapSnap = await safeGetDocs(chaptersColRef);
           }
 
           if (!chapSnap.empty) {
@@ -1490,9 +1694,9 @@ export async function fetchScriptureFromFirestore(
               const versesCol = collection(matchChapter.ref, "verses");
               let versesSnap;
               try {
-                versesSnap = await getDocs(query(versesCol, orderBy("verse_number", "asc")));
+                versesSnap = await safeGetDocs(query(versesCol, orderBy("verse_number", "asc")));
               } catch (e) {
-                versesSnap = await getDocs(versesCol);
+                versesSnap = await safeGetDocs(versesCol);
               }
 
               if (!versesSnap.empty) {
@@ -1519,10 +1723,10 @@ export async function fetchScriptureFromFirestore(
             const kandasColRef = collection(krishnaDocRef, "kandas");
             let kandaSnap;
             try {
-              kandaSnap = await getDocs(query(kandasColRef, orderBy("kanda_number", "asc")));
+              kandaSnap = await safeGetDocs(query(kandasColRef, orderBy("kanda_number", "asc")));
             } catch (e) {
               try {
-                kandaSnap = await getDocs(kandasColRef);
+                kandaSnap = await safeGetDocs(kandasColRef);
               } catch (e2) {}
             }
 
@@ -1542,12 +1746,12 @@ export async function fetchScriptureFromFirestore(
                   try {
                     let testSnap;
                     try {
-                      testSnap = await getDocs(query(pCol, orderBy("prashana_number", "asc")));
+                      testSnap = await safeGetDocs(query(pCol, orderBy("prashana_number", "asc")));
                     } catch (e) {
                       try {
-                        testSnap = await getDocs(query(pCol, orderBy("prashna_number", "asc")));
+                        testSnap = await safeGetDocs(query(pCol, orderBy("prashna_number", "asc")));
                       } catch (e2) {
-                        testSnap = await getDocs(pCol);
+                        testSnap = await safeGetDocs(pCol);
                       }
                     }
                     if (!testSnap.empty) {
@@ -1577,9 +1781,9 @@ export async function fetchScriptureFromFirestore(
                     const vCol = collection(pDoc.ref, "verses");
                     let vSnap;
                     try {
-                      vSnap = await getDocs(query(vCol, orderBy("verse_number", "asc")));
+                      vSnap = await safeGetDocs(query(vCol, orderBy("verse_number", "asc")));
                     } catch (e) {
-                      vSnap = await getDocs(vCol);
+                      vSnap = await safeGetDocs(vCol);
                     }
 
                     return vSnap.docs.map((vDoc) => {
@@ -1623,9 +1827,9 @@ export async function fetchScriptureFromFirestore(
                   const vCol = collection(matchKanda.ref, "verses");
                   let vSnap;
                   try {
-                    vSnap = await getDocs(query(vCol, orderBy("verse_number", "asc")));
+                    vSnap = await safeGetDocs(query(vCol, orderBy("verse_number", "asc")));
                   } catch (e) {
-                    vSnap = await getDocs(vCol);
+                    vSnap = await safeGetDocs(vCol);
                   }
                   if (!vSnap.empty) {
                     return formatFirestoreVerses(vSnap.docs, div, bookKey);
@@ -1640,162 +1844,116 @@ export async function fetchScriptureFromFirestore(
       }
     }
 
-    // Check if we are loading Mahapuranas and search the specific path:
-    // Holy Scripture Books -> Hinduism -> Mahapuranas (महापुराणाणि) -> [puranaDoc]
-    if (k === "mahapuranas" || k.includes("purana")) {
+    // Check if we are loading Atharvaveda and search the specific path:
+    // Holy Scripture Books -> Hinduism -> Atharvaveda (अथर्ववेद) -> [chapterDoc] -> verses
+    if (k === "atharvaveda") {
       try {
-        const candidatePuranasCols = [
-          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)"),
-          collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas"),
-          collection(db, "Holy Scripture Books", "Hinduism", "Puranas"),
-          collection(db, "Holy Scripture Books", "Hinduism", "Puranas (पुराणानी)"),
-          collection(db, "Mahapuranas (महापुराणाणि)"),
-          collection(db, "Mahapuranas")
-        ];
-
-        let puranasSnap = null;
-        for (const pColRef of candidatePuranasCols) {
+        let directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Atharvaveda (अथर्ववेद)");
+        let snap;
+        try {
+          const q = query(directColRef, orderBy("chapter_number", "asc"));
+          snap = await safeGetDocs(q);
+        } catch (queryChErr) {
           try {
-            let snap;
-            try {
-              snap = await getDocs(query(pColRef, orderBy("purana_number", "asc")));
-            } catch {
-              snap = await getDocs(pColRef);
-            }
-            if (snap && !snap.empty) {
-              puranasSnap = snap;
-              break;
-            }
-          } catch (e) {}
+            const q = query(directColRef, orderBy("kanda_number", "asc"));
+            snap = await safeGetDocs(q);
+          } catch (queryChErr2) {
+            snap = await safeGetDocs(directColRef);
+          }
         }
-
-        if (puranasSnap && !puranasSnap.empty) {
-          const puranaOpt = typeof options === "string" 
-            ? options 
-            : (options?.puranaName || options?.purana || options?.puranaDoc || options?.puranaId || options?.bookTitle || options?.title);
-
-          let matchedPuranaDoc = null;
-
-          if (puranaOpt) {
-            const normOpt = String(puranaOpt).toLowerCase().trim();
-            matchedPuranaDoc = puranasSnap.docs.find((pDoc) => {
-              const d = pDoc.data();
-              const pTitle = String(d.book_title || d.title || d.name || pDoc.id).toLowerCase().trim();
-              return pDoc.id.toLowerCase().trim() === normOpt || pTitle === normOpt || pTitle.includes(normOpt) || normOpt.includes(pTitle);
-            });
+        
+        if (snap.empty) {
+          console.log("[Firestore Scripture Loader] Subcollection 'Atharvaveda (अथर्ववेद)' empty or not found. Falling back to 'Atharvaveda'...");
+          directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Atharvaveda");
+          try {
+            const q = query(directColRef, orderBy("chapter_number", "asc"));
+            snap = await safeGetDocs(q);
+          } catch (queryChErr) {
+            try {
+              const q = query(directColRef, orderBy("kanda_number", "asc"));
+              snap = await safeGetDocs(q);
+            } catch (queryChErr2) {
+              snap = await safeGetDocs(directColRef);
+            }
           }
-
-          if (!matchedPuranaDoc && div) {
-            matchedPuranaDoc = puranasSnap.docs.find((pDoc, idx) => {
-              const d = pDoc.data();
-              const pNum = Number(d.purana_number ?? d.puranaNumber ?? d.number ?? d.chapter_number ?? d.chapterNumber ?? (idx + 1));
-              return pNum === div || Number(pDoc.id.replace(/[^0-9]/g, "")) === div;
-            });
-          }
-
-          if (!matchedPuranaDoc && puranasSnap.docs.length > 0) {
-            matchedPuranaDoc = puranasSnap.docs[0];
-          }
-
-          if (matchedPuranaDoc) {
-            const pData = matchedPuranaDoc.data();
-            const puranaName = matchedPuranaDoc.id;
-            const puranaTitle = pData.book_title || pData.title || puranaName;
-            const isShivaPurana = puranaName.toLowerCase().includes("shiva") || String(puranaTitle).toLowerCase().includes("shiva");
-
-            if (isShivaPurana) {
-              // --- SHIVA PURANA: samhitas -> chapters -> verses ---
-              // Collection Path: Holy Scripture Books/Hinduism/Mahapuranas (महापुराणाणि)/Shiva Purana/samhitas
-              const samhitasColRef = collection(matchedPuranaDoc.ref, "samhitas");
-              let samhitasSnap;
+        }
+        
+        if (!snap.empty) {
+          const match = snap.docs.find((docSnap) => {
+            const data = docSnap.data();
+            const num = data.chapter_number ?? data.chapterNumber ?? data.chapter ?? data.kanda_number ?? data.kandaNumber ?? data.kanda ?? data.number ?? docSnap.id;
+            const parsedId = Number(docSnap.id.replace(/[^0-9]/g, ""));
+            return Number(num) === div || parsedId === div;
+          });
+          
+          if (match) {
+            for (const vSubcol of ["verses", "Verses", "verse", "mantras", "Mantras", "slokas", "Shlokas", "shlokas"]) {
+              const versesCol = collection(match.ref, vSubcol);
+              let versesSnap;
               try {
-                samhitasSnap = await getDocs(query(samhitasColRef, orderBy("samhita_number", "asc")));
-              } catch {
-                samhitasSnap = await getDocs(samhitasColRef);
+                const q = query(versesCol, orderBy("verse_number", "asc"));
+                versesSnap = await safeGetDocs(q);
+              } catch (queryVerr) {
+                try {
+                  const q = query(versesCol, orderBy("number", "asc"));
+                  versesSnap = await safeGetDocs(q);
+                } catch {
+                  versesSnap = await safeGetDocs(versesCol);
+                }
               }
+              if (versesSnap && !versesSnap.empty) {
+                console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses for Atharvaveda chapter ${div} in direct path: 'Holy Scripture Books' -> 'Hinduism' -> 'Atharvaveda (अथर्ववेद)' -> '${vSubcol}'`);
+                return formatFirestoreVerses(versesSnap.docs, div, bookKey);
+              }
+            }
 
-              if (!samhitasSnap.empty) {
-                const samhitaOpt = typeof options === "object" ? (options?.samhitaNumber || options?.samhita) : undefined;
-                let samhitaDocsToScan = samhitasSnap.docs;
-
-                if (samhitaOpt) {
-                  const matchSamhita = samhitasSnap.docs.find((sDoc) => {
-                    const sd = sDoc.data();
-                    const sNum = sd.samhita_number ?? sd.samhitaNumber ?? sd.number ?? sDoc.id.replace(/[^0-9]/g, "");
-                    return Number(sNum) === Number(samhitaOpt) || sDoc.id === String(samhitaOpt);
-                  });
-                  if (matchSamhita) {
-                    samhitaDocsToScan = [matchSamhita];
-                  }
+            // Check nested suktas / hymns / anuvakas -> verses
+            for (const subcolName of ["suktas", "Suktas", "hymns", "anuvakas", "chapters", "padas"]) {
+              const sCol = collection(match.ref, subcolName);
+              let sSnap;
+              try {
+                sSnap = await safeGetDocs(query(sCol, orderBy("sukta_number", "asc")));
+              } catch {
+                try {
+                  sSnap = await safeGetDocs(query(sCol, orderBy("number", "asc")));
+                } catch {
+                  sSnap = await safeGetDocs(sCol);
                 }
-
-                const targetChapNum = typeof options === "object" && options?.chapterNumber !== undefined 
-                  ? Number(options.chapterNumber) 
-                  : div;
-
-                let allVersesFound: any[] = [];
-
-                for (const sDoc of samhitaDocsToScan) {
+              }
+              if (sSnap && !sSnap.empty) {
+                const nestedPromises = sSnap.docs.map(async (sDoc, sIdx) => {
                   const sData = sDoc.data();
-                  const sNum = Number(sData.samhita_number ?? sData.samhitaNumber ?? (sDoc.id.replace(/[^0-9]/g, "") || 1));
-
-                  const chapColRef = collection(sDoc.ref, "chapters");
-                  let chapSnap;
-                  try {
-                    chapSnap = await getDocs(query(chapColRef, orderBy("chapter_number", "asc")));
-                  } catch {
-                    chapSnap = await getDocs(chapColRef);
-                  }
-
-                  if (!chapSnap.empty) {
-                    let chapDocsToScan = chapSnap.docs;
-                    if (targetChapNum) {
-                      const matchChap = chapSnap.docs.find((cDoc) => {
-                        const cd = cDoc.data();
-                        const cNum = cd.chapter_number ?? cd.chapterNumber ?? cd.number ?? cDoc.id.replace(/[^0-9]/g, "");
-                        return Number(cNum) === targetChapNum;
+                  const sNum = Number(sData.sukta_number ?? sData.sukta ?? sData.chapter_number ?? sData.number ?? (sDoc.id.replace(/[^0-9]/g, "") || (sIdx + 1)));
+                  for (const vSub of ["verses", "Verses", "verse", "mantras", "richas"]) {
+                    const vCol = collection(sDoc.ref, vSub);
+                    let vSnap;
+                    try {
+                      vSnap = await safeGetDocs(query(vCol, orderBy("verse_number", "asc")));
+                    } catch {
+                      vSnap = await safeGetDocs(vCol);
+                    }
+                    if (vSnap && !vSnap.empty) {
+                      return vSnap.docs.map((docSnap, vIdx) => {
+                        const d = docSnap.data();
+                        const vNum = Number((d.verse_number ?? d.verseNumber ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (vIdx + 1));
+                        return {
+                          number: `${div}.${sNum}.${vNum}`,
+                          originalText: extractVerseTextFirestore(d),
+                          transliteration: extractTranslitFirestore(d),
+                          translation: extractTranslFirestore(d, extractVerseTextFirestore(d))
+                        };
                       });
-                      if (matchChap) {
-                        chapDocsToScan = [matchChap];
-                      }
-                    }
-
-                    for (const cDoc of chapDocsToScan) {
-                      const cd = cDoc.data();
-                      const cNum = Number(cd.chapter_number ?? cd.chapterNumber ?? (cDoc.id.replace(/[^0-9]/g, "") || 1));
-
-                      const versesColRef = collection(cDoc.ref, "verses");
-                      let versesSnap;
-                      try {
-                        versesSnap = await getDocs(query(versesColRef, orderBy("verse_number", "asc")));
-                      } catch {
-                        versesSnap = await getDocs(versesColRef);
-                      }
-
-                      if (!versesSnap.empty) {
-                        const formatted = versesSnap.docs.map((vDoc) => {
-                          const vd = vDoc.data();
-                          const vNum = Number(vd.verse_number ?? vd.verseNumber ?? vd.number ?? (vDoc.id.replace(/[^0-9]/g, "") || 1));
-                          const refVal = vd.reference ? String(vd.reference) : `${sNum}.${cNum}.${vNum}`;
-                          return {
-                            number: refVal,
-                            originalText: vd.text ?? vd.originalText ?? vd.cleanText ?? vd.text_content ?? "",
-                            transliteration: vd.itx || vd.transliteration || vd.phonetic || vd.roman || "",
-                            translation: vd.translation || vd.english || ""
-                          };
-                        });
-                        allVersesFound.push(...formatted);
-                      }
                     }
                   }
-                }
-
-                if (allVersesFound.length > 0) {
-                  console.log(`[Firestore Scripture Loader] Hit: Found ${allVersesFound.length} verses for Shiva Purana in custom database 'interfaith-108'.`);
+                  return [];
+                });
+                const nested = await Promise.all(nestedPromises);
+                const flatVerses = nested.flat();
+                if (flatVerses.length > 0) {
                   return {
-                    introSummary: `Loaded ${puranaTitle} directly from your custom database 'interfaith-108' in Firestore.`,
-                    verses: allVersesFound,
-                    commentary: `### Scholarly Commentary\n\nThis Shiva Purana text was retrieved from your custom uploaded repository inside Firestore ('interfaith-108').`,
+                    introSummary: `Loaded Chapter ${div} (Atharvaveda) directly from your custom database 'interfaith-108' in Firestore.`,
+                    verses: flatVerses,
+                    commentary: `### Scholarly Commentary\n\nThis Atharvaveda text was retrieved from your custom uploaded repository inside Firestore ('interfaith-108').`,
                     interfaithParallels: [
                       {
                         religion: "Interfaith Insights",
@@ -1807,52 +1965,629 @@ export async function fetchScriptureFromFirestore(
                   };
                 }
               }
-            } else {
-              // --- 12 SINGLE-BRANCH PURANAS: chapters -> verses ---
-              // Collection Path: Holy Scripture Books/Hinduism/Mahapuranas (महापुराणाणि)/{puranaName}/chapters
-              const chaptersColRef = collection(matchedPuranaDoc.ref, "chapters");
-              let chapSnap;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[Firestore Scripture Loader] Error fetching direct Hinduism Atharvaveda path:", e);
+      }
+    }
+
+    // Check if we are loading Samaveda and search the specific path:
+    // Holy Scripture Books -> Hinduism -> Samaveda (सामवेद) -> [chapterDoc] -> verses
+    if (k === "samaveda") {
+      try {
+        let directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Samaveda (सामवेद)");
+        let snap;
+        try {
+          const q = query(directColRef, orderBy("chapter_number", "asc"));
+          snap = await safeGetDocs(q);
+        } catch (queryChErr) {
+          try {
+            const q = query(directColRef, orderBy("part_number", "asc"));
+            snap = await safeGetDocs(q);
+          } catch (queryChErr2) {
+            snap = await safeGetDocs(directColRef);
+          }
+        }
+        
+        if (snap.empty) {
+          console.log("[Firestore Scripture Loader] Subcollection 'Samaveda (सामवेद)' empty or not found. Falling back to 'Samaveda'...");
+          directColRef = collection(db, "Holy Scripture Books", "Hinduism", "Samaveda");
+          try {
+            const q = query(directColRef, orderBy("chapter_number", "asc"));
+            snap = await safeGetDocs(q);
+          } catch (queryChErr) {
+            try {
+              const q = query(directColRef, orderBy("part_number", "asc"));
+              snap = await safeGetDocs(q);
+            } catch (queryChErr2) {
+              snap = await safeGetDocs(directColRef);
+            }
+          }
+        }
+        
+        if (!snap.empty) {
+          const match = snap.docs.find((docSnap) => {
+            const data = docSnap.data();
+            const num = data.chapter_number ?? data.chapterNumber ?? data.chapter ?? data.part_number ?? data.partNumber ?? data.part ?? data.number ?? docSnap.id;
+            const parsedId = Number(docSnap.id.replace(/[^0-9]/g, ""));
+            return Number(num) === div || parsedId === div;
+          });
+          
+          if (match) {
+            for (const vSubcol of ["verses", "Verses", "verse", "mantras", "Mantras", "slokas", "Shlokas", "shlokas"]) {
+              const versesCol = collection(match.ref, vSubcol);
+              let versesSnap;
               try {
-                chapSnap = await getDocs(query(chaptersColRef, orderBy("chapter_number", "asc")));
-              } catch {
-                chapSnap = await getDocs(chaptersColRef);
-              }
-
-              if (!chapSnap.empty) {
-                const targetChapNum = typeof options === "object" && options?.chapterNumber !== undefined 
-                  ? Number(options.chapterNumber) 
-                  : div;
-
-                let matchChap = chapSnap.docs.find((cDoc) => {
-                  const cd = cDoc.data();
-                  const cNum = cd.chapter_number ?? cd.chapterNumber ?? cd.number ?? cDoc.id.replace(/[^0-9]/g, "");
-                  return Number(cNum) === targetChapNum;
-                });
-
-                if (!matchChap && chapSnap.docs.length > 0) {
-                  matchChap = chapSnap.docs[0];
+                const q = query(versesCol, orderBy("verse_number", "asc"));
+                versesSnap = await safeGetDocs(q);
+              } catch (queryVerr) {
+                try {
+                  const q = query(versesCol, orderBy("number", "asc"));
+                  versesSnap = await safeGetDocs(q);
+                } catch {
+                  versesSnap = await safeGetDocs(versesCol);
                 }
+              }
+              if (versesSnap && !versesSnap.empty) {
+                console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses for Samaveda chapter ${div} in direct path: 'Holy Scripture Books' -> 'Hinduism' -> 'Samaveda (सामवेद)' -> '${vSubcol}'`);
+                return formatFirestoreVerses(versesSnap.docs, div, bookKey);
+              }
+            }
 
-                if (matchChap) {
-                  const versesColRef = collection(matchChap.ref, "verses");
-                  let versesSnap;
-                  try {
-                    versesSnap = await getDocs(query(versesColRef, orderBy("verse_number", "asc")));
-                  } catch {
-                    versesSnap = await getDocs(versesColRef);
+            // Check nested suktas / hymns / padas -> verses
+            for (const subcolName of ["suktas", "Suktas", "hymns", "anuvakas", "chapters", "padas"]) {
+              const sCol = collection(match.ref, subcolName);
+              let sSnap;
+              try {
+                sSnap = await safeGetDocs(query(sCol, orderBy("sukta_number", "asc")));
+              } catch {
+                try {
+                  sSnap = await safeGetDocs(query(sCol, orderBy("number", "asc")));
+                } catch {
+                  sSnap = await safeGetDocs(sCol);
+                }
+              }
+              if (sSnap && !sSnap.empty) {
+                const nestedPromises = sSnap.docs.map(async (sDoc, sIdx) => {
+                  const sData = sDoc.data();
+                  const sNum = Number(sData.sukta_number ?? sData.sukta ?? sData.chapter_number ?? sData.number ?? (sDoc.id.replace(/[^0-9]/g, "") || (sIdx + 1)));
+                  for (const vSub of ["verses", "Verses", "verse", "mantras", "richas"]) {
+                    const vCol = collection(sDoc.ref, vSub);
+                    let vSnap;
+                    try {
+                      vSnap = await safeGetDocs(query(vCol, orderBy("verse_number", "asc")));
+                    } catch {
+                      vSnap = await safeGetDocs(vCol);
+                    }
+                    if (vSnap && !vSnap.empty) {
+                      return vSnap.docs.map((docSnap, vIdx) => {
+                        const d = docSnap.data();
+                        const vNum = Number((d.verse_number ?? d.verseNumber ?? d.number ?? docSnap.id.replace(/[^0-9]/g, "")) || (vIdx + 1));
+                        return {
+                          number: `${div}.${sNum}.${vNum}`,
+                          originalText: extractVerseTextFirestore(d),
+                          transliteration: extractTranslitFirestore(d),
+                          translation: extractTranslFirestore(d, extractVerseTextFirestore(d))
+                        };
+                      });
+                    }
                   }
-
-                  if (!versesSnap.empty) {
-                    console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses for ${puranaTitle} chapter ${targetChapNum} in custom database 'interfaith-108'.`);
-                    return formatFirestoreVerses(versesSnap.docs, targetChapNum, bookKey);
-                  }
+                  return [];
+                });
+                const nested = await Promise.all(nestedPromises);
+                const flatVerses = nested.flat();
+                if (flatVerses.length > 0) {
+                  return {
+                    introSummary: `Loaded Chapter ${div} (Samaveda) directly from your custom database 'interfaith-108' in Firestore.`,
+                    verses: flatVerses,
+                    commentary: `### Scholarly Commentary\n\nThis Samaveda text was retrieved from your custom uploaded repository inside Firestore ('interfaith-108').`,
+                    interfaithParallels: [
+                      {
+                        religion: "Interfaith Insights",
+                        source: "Academy Ledger",
+                        similarity: "Matches with verified spiritual insights from world traditions.",
+                        lesson: "Always follow the path of truth, righteousness, and devotion."
+                      }
+                    ]
+                  };
                 }
               }
             }
           }
         }
       } catch (e) {
-        console.warn("[Firestore Scripture Loader] Error fetching Mahapuranas path:", e);
+        console.warn("[Firestore Scripture Loader] Error fetching direct Hinduism Samaveda path:", e);
+      }
+    }
+
+    // Check if we are loading Mahapuranas or Upapuranas or Principal Upanishads and search the specific path:
+    // Holy Scripture Books -> Hinduism -> Principal Upanishads (उपनिषद्) / Upapuranas (उपपुराण) / Mahapuranas (महापुराणाणि) -> [doc]
+    if (k === "mahapuranas" || k === "upapuranas" || k === "upanishads" || k.includes("purana") || k.includes("devi") || k.includes("bhagavata") || k.includes("shiva") || k.includes("upanishad")) {
+      try {
+        const candidatePuranasCols = (k === "upapuranas" || k.includes("upapurana") || k.includes("devi")) ? [
+  collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराणानि)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas"),
+  collection(db, "Holy Scripture Books", "hinduism", "Upapuranas (उपपुराण)"),
+  collection(db, "Holy Scripture Books", "hinduism", "Upapuranas"),
+  collection(db, "Upapuranas (उपपुराण)"),
+  collection(db, "Upapuranas"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas")
+] : (k === "upanishads" || k.includes("upanishad")) ? [
+  collection(db, "Holy Scripture Books", "Hinduism", " Principal Upanishads (उपनिषद्)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Principal Upanishads (उपनिषद्)"),
+  collection(db, "Holy Scripture Books", "Hinduism", " Principal Upanishads"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Principal Upanishads"),
+  collection(db, "Holy Scripture Books", "Hinduism", " Upanishads (उपनिषद्)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Upanishads (उपनिषद्)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Upanishads"),
+  collection(db, "Holy Scripture Books", "hinduism", " Principal Upanishads (उपनिषद्)"),
+  collection(db, "Holy Scripture Books", "hinduism", "Principal Upanishads (उपनिषद्)"),
+  collection(db, "Holy Scripture Books", "hinduism", "Principal Upanishads"),
+  collection(db, " Principal Upanishads (उपनिषद्)"),
+  collection(db, "Principal Upanishads (उपनिषद्)"),
+  collection(db, "Principal Upanishads")
+] : [
+  collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas (महापुराणाणि)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Mahapuranas"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas (उपपुराण)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Upapuranas"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Puranas (पुराणानी)"),
+  collection(db, "Holy Scripture Books", "Hinduism", "Puranas"),
+  collection(db, "Holy Scripture Books", "hinduism", "Mahapuranas (महापुराणाणि)"),
+  collection(db, "Holy Scripture Books", "hinduism", "Mahapuranas"),
+  collection(db, "Mahapuranas (महापुराणाणि)"),
+  collection(db, "Mahapuranas")
+];
+
+        let puranasSnap = null;
+        for (const pColRef of candidatePuranasCols) {
+          try {
+            const snap = await safeGetDocs(pColRef);
+            if (snap && !snap.empty) {
+              puranasSnap = snap;
+              break;
+            }
+          } catch (e) {}
+        }
+
+        if (puranasSnap && !puranasSnap.empty) {
+          // If option listPuranas or listUpanishads is requested, return the available documents list
+          if (options?.listPuranas || options?.listUpanishads) {
+            return puranasSnap.docs.map((pDoc, idx) => {
+              const d = pDoc.data();
+              let uNum = Number(d.upanishad_number ?? d.upanishadNumber ?? d.purana_number ?? d.puranaNumber ?? d.number ?? d.chapter_number ?? d.chapterNumber);
+              if (!uNum || isNaN(uNum)) {
+                const norm = pDoc.id.toLowerCase().replace(/upanishad|upnishad/g, "").replace(/[^a-z]/g, "").trim();
+                const matched = UPANISHADS_108.find(u => {
+                  const uClean = u.name.toLowerCase().replace(/[^a-z]/g, "");
+                  return uClean === norm || norm.startsWith(uClean) || uClean.startsWith(norm);
+                });
+                uNum = matched ? matched.number : (idx + 1);
+              }
+              return {
+                id: pDoc.id,
+                puranaNumber: uNum,
+                upanishadNumber: uNum,
+                bookTitle: d.book_title || d.upanishad_title || d.upanishad_name || d.title || d.name || pDoc.id,
+                docId: pDoc.id
+              };
+            }).sort((a, b) => a.upanishadNumber - b.upanishadNumber);
+          }
+
+          let puranaOpt = typeof options === "string" 
+            ? options 
+            : (options?.upanishadName || options?.upanishad || options?.upanishadDoc || options?.upanishadId || options?.puranaName || options?.purana || options?.puranaDoc || options?.puranaId || options?.bookTitle || options?.title);
+
+          if (!puranaOpt && (k.includes("purana") || k.includes("devi") || k.includes("bhagavata") || k.includes("shiva") || k.includes("upanishad")) && k !== "mahapuranas" && k !== "upapuranas" && k !== "upanishads") {
+            puranaOpt = bookKey.replace(/_/g, " ");
+          }
+
+          let matchedPuranaDoc = null;
+
+          if (puranaOpt) {
+            const normOpt = String(puranaOpt).toLowerCase().trim().replace(/_/g, " ").replace(/^\d+\.\s*/, "").replace(/[^a-z0-9\s]/g, "");
+            matchedPuranaDoc = puranasSnap.docs.find((pDoc) => {
+              const d = pDoc.data();
+              const pTitle = String(d.book_title || d.upanishad_title || d.upanishad_name || d.title || d.name || pDoc.id).toLowerCase().trim().replace(/_/g, " ").replace(/^\d+\.\s*/, "").replace(/[^a-z0-9\s]/g, "");
+              const pIdNorm = pDoc.id.toLowerCase().trim().replace(/_/g, " ").replace(/^\d+\.\s*/, "").replace(/[^a-z0-9\s]/g, "");
+              return pIdNorm === normOpt || pTitle === normOpt || pTitle.includes(normOpt) || normOpt.includes(pTitle) || pIdNorm.includes(normOpt) || normOpt.includes(pIdNorm);
+            });
+          }
+
+          if (!matchedPuranaDoc && div) {
+            matchedPuranaDoc = puranasSnap.docs.find((pDoc, idx) => {
+              const d = pDoc.data();
+              const pNum = Number(d.upanishad_number ?? d.upanishadNumber ?? d.purana_number ?? d.puranaNumber ?? d.number ?? d.chapter_number ?? d.chapterNumber ?? (idx + 1));
+              return pNum === div || Number(pDoc.id.replace(/[^0-9]/g, "")) === div;
+            });
+
+            if (!matchedPuranaDoc && (k === "upanishads" || k.includes("upanishad"))) {
+              const canonical = UPANISHADS_108.find(u => u.number === div);
+              if (canonical) {
+                const canonClean = canonical.name.toLowerCase().replace(/[^a-z]/g, "");
+                matchedPuranaDoc = puranasSnap.docs.find((pDoc) => {
+                  const norm = pDoc.id.toLowerCase().replace(/upanishad|upnishad/g, "").replace(/[^a-z]/g, "").trim();
+                  return norm === canonClean || norm.startsWith(canonClean) || canonClean.startsWith(norm);
+                });
+              }
+            }
+          }
+
+          if (!matchedPuranaDoc && puranasSnap.docs.length > 0) {
+            matchedPuranaDoc = puranasSnap.docs[0];
+          }
+
+          if (matchedPuranaDoc) {
+            const pData = matchedPuranaDoc.data();
+            const puranaName = matchedPuranaDoc.id;
+            const puranaTitle = pData.book_title || pData.upanishad_title || pData.upanishad_name || pData.title || puranaName;
+
+            // Check tier-2 subcollections: chapters (first for Upanishads), khandas, adhyayas, vallis, skandhas, cantos, samhitas, sections, brahmanas
+            const tier2SubcolCandidates = (k === "upanishads" || k.includes("upanishad"))
+              ? [
+                  "chapters", "Chapters",
+                  "khandas", "Khandas",
+                  "adhyayas", "Adhyayas",
+                  "vallis", "Vallis", "valli",
+                  "sections", "Sections",
+                  "brahmanas", "Brahmanas",
+                  "anuvakas", "Anuvakas"
+                ]
+              : [
+                  "khandas", "Khandas",
+                  "adhyayas", "Adhyayas",
+                  "vallis", "Vallis", "valli",
+                  "skandhas", "Skandhas",
+                  "samhitas", "Samhitas",
+                  "cantos", "Cantos",
+                  "skandas", "Skandas",
+                  "chapters", "Chapters",
+                  "sections", "Sections",
+                  "brahmanas", "Brahmanas",
+                  "anuvakas", "Anuvakas"
+                ];
+            let tier2Snap = null;
+            let matchedTier2Name = "";
+
+            for (const subName of tier2SubcolCandidates) {
+              const subRef = collection(matchedPuranaDoc.ref, subName);
+              try {
+                let testSnap = null;
+                for (const oField of ["khanda_number", "adhyaya_number", "valli_number", "skandha_number", "samhita_number", "canto_number", "chapter_number", "brahmana_number", "anuvaka_number", "number"]) {
+                  try {
+                    const osnap = await safeGetDocs(query(subRef, orderBy(oField, "asc")));
+                    if (osnap && !osnap.empty) {
+                      testSnap = osnap;
+                      break;
+                    }
+                  } catch (oe) {}
+                }
+                if (!testSnap || testSnap.empty) {
+                  testSnap = await safeGetDocs(subRef);
+                }
+                if (testSnap && !testSnap.empty) {
+                  tier2Snap = testSnap;
+                  matchedTier2Name = subName.toLowerCase();
+                  break;
+                }
+              } catch (e) {}
+            }
+
+            if (!tier2Snap || tier2Snap.empty) {
+              // Direct verses/mantras under the document (common for Upanishads)
+              let directVersesSnap: any = null;
+              for (const vSubcol of ["verses", "Verses", "verse", "Verse", "mantras", "Mantras", "mantra", "Mantra", "slokas", "Shlokas", "shlokas", "richas", "lines", "text", "shlok"]) {
+                const vColRef = collection(matchedPuranaDoc.ref, vSubcol);
+                for (const vOrd of ["verse_number", "number", "mantra_number", "sloka_number", "shloka_number", "richa_number"]) {
+                  try {
+                    const testSnap = await safeGetDocs(query(vColRef, orderBy(vOrd, "asc")));
+                    if (testSnap && !testSnap.empty) {
+                      directVersesSnap = testSnap;
+                      break;
+                    }
+                  } catch (e) {}
+                }
+                if (!directVersesSnap || directVersesSnap.empty) {
+                  try {
+                    const testSnap = await safeGetDocs(vColRef);
+                    if (testSnap && !testSnap.empty) {
+                      directVersesSnap = testSnap;
+                      break;
+                    }
+                  } catch (e) {}
+                }
+                if (directVersesSnap && !directVersesSnap.empty) break;
+              }
+
+              if (directVersesSnap && !directVersesSnap.empty) {
+                console.log(`[Firestore Scripture Loader] Hit: Found ${directVersesSnap.size} direct verses for ${puranaTitle} in custom database 'interfaith-108'.`);
+                return formatFirestoreVerses(directVersesSnap.docs, div || 1, bookKey);
+              }
+            }
+
+            if (tier2Snap && !tier2Snap.empty) {
+              if (matchedTier2Name === "chapters" || matchedTier2Name === "adhyayas" || matchedTier2Name === "khandas" || matchedTier2Name === "vallis" || matchedTier2Name === "valli" || matchedTier2Name === "sections") {
+                // Direct chapters/khandas/vallis -> verses
+                const targetChapNum = typeof options === "object" && options?.chapterNumber !== undefined 
+                  ? Number(options.chapterNumber) 
+                  : div;
+
+                let matchChap = tier2Snap.docs.find((cDoc) => {
+                  const cd = cDoc.data();
+                  const cNum = cd.chapter_number ?? cd.chapterNumber ?? cd.adhyaya_number ?? cd.khanda_number ?? cd.valli_number ?? cd.number ?? cDoc.id.replace(/[^0-9]/g, "");
+                  return Number(cNum) === targetChapNum || cDoc.id === `chapter_${targetChapNum}` || cDoc.id === `chapter${targetChapNum}`;
+                });
+
+                if (!matchChap && tier2Snap.docs.length > 0) {
+                  matchChap = tier2Snap.docs[0];
+                }
+
+                if (matchChap) {
+                  let versesSnap: any = null;
+                  for (const vSubcol of ["verses", "Verses", "verse", "Verse", "slokas", "Shlokas", "shlokas", "mantras", "Mantras", "richas", "lines"]) {
+                    const versesColRef = collection(matchChap.ref, vSubcol);
+                    for (const vOrd of ["verse_number", "number", "sloka_number", "mantra_number", "shloka_number"]) {
+                      try {
+                        const testSnap = await safeGetDocs(query(versesColRef, orderBy(vOrd, "asc")));
+                        if (testSnap && !testSnap.empty) {
+                          versesSnap = testSnap;
+                          break;
+                        }
+                      } catch {}
+                    }
+                    if (!versesSnap || versesSnap.empty) {
+                      try {
+                        const testSnap = await safeGetDocs(versesColRef);
+                        if (testSnap && !testSnap.empty) {
+                          versesSnap = testSnap;
+                          break;
+                        }
+                      } catch {}
+                    }
+                    if (versesSnap && !versesSnap.empty) break;
+                  }
+
+                  if (versesSnap && !versesSnap.empty) {
+                    console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses for ${puranaTitle} sub-division ${targetChapNum} in custom database 'interfaith-108'.`);
+                    return formatFirestoreVerses(versesSnap.docs, targetChapNum, bookKey);
+                  }
+                }
+              } else {
+                // skandhas, cantos, samhitas, khandas -> chapters/khandas -> verses
+                const targetSkandhaNum = typeof options === "object" ? (options?.skandhaNumber || options?.skandha || options?.cantoNumber || options?.canto || options?.samhitaNumber || options?.samhita || options?.khandaNumber || options?.khanda) : undefined;
+                let skandhaDocsToScan = tier2Snap.docs;
+
+                if (targetSkandhaNum) {
+                  const matchSkandha = tier2Snap.docs.find((sDoc) => {
+                    const sd = sDoc.data();
+                    const sNum = sd.skandha_number ?? sd.skandhaNumber ?? sd.canto_number ?? sd.cantoNumber ?? sd.samhita_number ?? sd.samhitaNumber ?? sd.khanda_number ?? sd.number ?? sd.id ?? sDoc.id.replace(/[^0-9]/g, "");
+                    return Number(sNum) === Number(targetSkandhaNum) || sDoc.id === String(targetSkandhaNum) || sDoc.id === `skandha_${targetSkandhaNum}` || sDoc.id === `samhita_${targetSkandhaNum}` || sDoc.id === `khanda_${targetSkandhaNum}`;
+                  });
+                  if (matchSkandha) {
+                    skandhaDocsToScan = [matchSkandha];
+                  }
+                } else if (div && tier2Snap.docs.length > 1) {
+                  const matchSkandha = tier2Snap.docs.find((sDoc) => {
+                    const sd = sDoc.data();
+                    const sNum = sd.skandha_number ?? sd.skandhaNumber ?? sd.canto_number ?? sd.cantoNumber ?? sd.samhita_number ?? sd.samhitaNumber ?? sd.khanda_number ?? sd.number ?? sd.id ?? sDoc.id.replace(/[^0-9]/g, "");
+                    return Number(sNum) === div || sDoc.id === `skandha_${div}` || sDoc.id === `samhita_${div}` || sDoc.id === `khanda_${div}`;
+                  });
+                  if (matchSkandha) {
+                    skandhaDocsToScan = [matchSkandha];
+                  }
+                }
+
+                const targetChapNum = typeof options === "object" && options?.chapterNumber !== undefined 
+                  ? Number(options.chapterNumber) 
+                  : div;
+
+                let allVersesFound: any[] = [];
+
+                for (const sDoc of skandhaDocsToScan) {
+                  const sData = sDoc.data();
+                  const sNum = Number(sData.skandha_number ?? sData.skandhaNumber ?? sData.canto_number ?? sData.cantoNumber ?? sData.samhita_number ?? sData.samhitaNumber ?? sData.khanda_number ?? (sDoc.id.replace(/[^0-9]/g, "") || 1));
+
+                  // 1. Check for nested chapters / adhyayas subcol
+                  let chapSnap: any = null;
+                  for (const cSubName of ["chapters", "Chapters", "adhyayas", "Adhyayas", "khandas", "Khandas", "sections", "Sections"]) {
+                    const chapColRef = collection(sDoc.ref, cSubName);
+                    for (const cOrd of ["chapter_number", "adhyaya_number", "khanda_number", "number"]) {
+                      try {
+                        const testSnap = await safeGetDocs(query(chapColRef, orderBy(cOrd, "asc")));
+                        if (testSnap && !testSnap.empty) {
+                          chapSnap = testSnap;
+                          break;
+                        }
+                      } catch (e) {}
+                    }
+                    if (!chapSnap || chapSnap.empty) {
+                      try {
+                        const testSnap = await safeGetDocs(chapColRef);
+                        if (testSnap && !testSnap.empty) {
+                          chapSnap = testSnap;
+                        }
+                      } catch (e) {}
+                    }
+                    if (chapSnap && !chapSnap.empty) break;
+                  }
+
+                  if (chapSnap && !chapSnap.empty) {
+                    let chapDocsToScan = chapSnap.docs;
+                    if (targetChapNum) {
+                      const matchChap = chapSnap.docs.find((cDoc: any) => {
+                        const cd = cDoc.data();
+                        const cNum = cd.chapter_number ?? cd.chapterNumber ?? cd.adhyaya_number ?? cd.number ?? cDoc.id.replace(/[^0-9]/g, "");
+                        return Number(cNum) === targetChapNum || cDoc.id === `chapter_${targetChapNum}` || cDoc.id === `adhyaya_${targetChapNum}`;
+                      });
+                      if (matchChap) {
+                        chapDocsToScan = [matchChap];
+                      }
+                    }
+
+                    for (const cDoc of chapDocsToScan) {
+                      const cd = cDoc.data();
+                      const cNum = Number(cd.chapter_number ?? cd.chapterNumber ?? cd.adhyaya_number ?? (cDoc.id.replace(/[^0-9]/g, "") || 1));
+
+                      // Direct verses under chapter
+                      let versesSnap: any = null;
+                      for (const vSubcol of ["verses", "Verses", "verse", "Verse", "slokas", "Shlokas", "mantras", "Mantras", "richas"]) {
+                        const versesColRef = collection(cDoc.ref, vSubcol);
+                        for (const vOrd of ["verse_number", "number", "sloka_number", "mantra_number"]) {
+                          try {
+                            const testSnap = await safeGetDocs(query(versesColRef, orderBy(vOrd, "asc")));
+                            if (testSnap && !testSnap.empty) {
+                              versesSnap = testSnap;
+                              break;
+                            }
+                          } catch {}
+                        }
+                        if (!versesSnap || versesSnap.empty) {
+                          try {
+                            const testSnap = await safeGetDocs(versesColRef);
+                            if (testSnap && !testSnap.empty) {
+                              versesSnap = testSnap;
+                              break;
+                            }
+                          } catch {}
+                        }
+                        if (versesSnap && !versesSnap.empty) break;
+                      }
+
+                      if (versesSnap && !versesSnap.empty) {
+                        const formatted = versesSnap.docs.map((vDoc: any) => {
+                          const vd = vDoc.data();
+                          const vNum = Number(vd.verse_number ?? vd.verseNumber ?? vd.number ?? (vDoc.id.replace(/[^0-9]/g, "") || 1));
+                          const refVal = vd.reference ? String(vd.reference) : `${sNum}.${cNum}.${vNum}`;
+                          const textVal = extractVerseTextFirestore(vd);
+                          const translitVal = extractTranslitFirestore(vd);
+                          const translVal = extractTranslFirestore(vd, textVal);
+
+                          return {
+                            number: refVal,
+                            originalText: textVal,
+                            transliteration: translitVal,
+                            translation: translVal
+                          };
+                        });
+                        allVersesFound.push(...formatted);
+                      } else {
+                        // Deep tier-4: check if cDoc is a Khanda (e.g. Shiva Purana Rudra Samhita -> Srishti Khanda -> Chapters -> Verses)
+                        for (const t4Sub of ["chapters", "Chapters", "adhyayas", "Adhyayas", "verses"]) {
+                          const t4Col = collection(cDoc.ref, t4Sub);
+                          let t4Snap: any = null;
+                          try {
+                            t4Snap = await safeGetDocs(t4Col);
+                          } catch (e) {}
+
+                          if (t4Snap && !t4Snap.empty) {
+                            for (const t4Doc of t4Snap.docs) {
+                              const t4Data = t4Doc.data();
+                              const t4Num = Number(t4Data.chapter_number ?? t4Data.adhyaya_number ?? (t4Doc.id.replace(/[^0-9]/g, "") || 1));
+                              
+                              for (const vSub of ["verses", "Verses", "verse", "slokas", "shlokas", "mantras"]) {
+                                const vCol4 = collection(t4Doc.ref, vSub);
+                                let vSnap4: any = null;
+                                try {
+                                  vSnap4 = await safeGetDocs(vCol4);
+                                } catch (e) {}
+
+                                if (vSnap4 && !vSnap4.empty) {
+                                  const formatted = vSnap4.docs.map((vDoc: any) => {
+                                    const vd = vDoc.data();
+                                    const vNum = Number(vd.verse_number ?? vd.verseNumber ?? vd.number ?? (vDoc.id.replace(/[^0-9]/g, "") || 1));
+                                    const refVal = vd.reference ? String(vd.reference) : `${sNum}.${cNum}.${t4Num}.${vNum}`;
+                                    const textVal = extractVerseTextFirestore(vd);
+                                    const translitVal = extractTranslitFirestore(vd);
+                                    const translVal = extractTranslFirestore(vd, textVal);
+
+                                    return {
+                                      number: refVal,
+                                      originalText: textVal,
+                                      transliteration: translitVal,
+                                      translation: translVal
+                                    };
+                                  });
+                                  allVersesFound.push(...formatted);
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  } else {
+                    // Direct verses under skandha/canto/samhita
+                    let versesSnap: any = null;
+                    for (const vSubcol of ["verses", "Verses", "verse", "Verse", "slokas", "Shlokas", "mantras", "Mantras"]) {
+                      const versesColRef = collection(sDoc.ref, vSubcol);
+                      for (const vOrd of ["verse_number", "number", "sloka_number", "mantra_number"]) {
+                        try {
+                          const testSnap = await safeGetDocs(query(versesColRef, orderBy(vOrd, "asc")));
+                          if (testSnap && !testSnap.empty) {
+                            versesSnap = testSnap;
+                            break;
+                          }
+                        } catch {}
+                      }
+                      if (!versesSnap || versesSnap.empty) {
+                        try {
+                          const testSnap = await safeGetDocs(versesColRef);
+                          if (testSnap && !testSnap.empty) {
+                            versesSnap = testSnap;
+                            break;
+                          }
+                        } catch {}
+                      }
+                      if (versesSnap && !versesSnap.empty) break;
+                    }
+
+                    if (versesSnap && !versesSnap.empty) {
+                      const formatted = versesSnap.docs.map((vDoc: any) => {
+                        const vd = vDoc.data();
+                        const vNum = Number(vd.verse_number ?? vd.verseNumber ?? vd.number ?? (vDoc.id.replace(/[^0-9]/g, "") || 1));
+                        const refVal = vd.reference ? String(vd.reference) : `${sNum}.${vNum}`;
+                        const textVal = extractVerseTextFirestore(vd);
+                        const translitVal = extractTranslitFirestore(vd);
+                        const translVal = extractTranslFirestore(vd, textVal);
+
+                        return {
+                          number: refVal,
+                          originalText: textVal,
+                          transliteration: translitVal,
+                          translation: translVal
+                        };
+                      });
+                      allVersesFound.push(...formatted);
+                    }
+                  }
+                }
+
+                if (allVersesFound.length > 0) {
+                  console.log(`[Firestore Scripture Loader] Hit: Found ${allVersesFound.length} verses for ${puranaTitle} in custom database 'interfaith-108'.`);
+                  return {
+                    introSummary: `Loaded ${puranaTitle} directly from your custom database 'interfaith-108' in Firestore.`,
+                    verses: allVersesFound,
+                    commentary: `### Scholarly Commentary\n\nThis ${puranaTitle} text was retrieved from your custom uploaded repository inside Firestore ('interfaith-108').`,
+                    interfaithParallels: [
+                      {
+                        religion: "Interfaith Insights",
+                        source: "Academy Ledger",
+                        similarity: "Matches with verified spiritual insights from world traditions.",
+                        lesson: "Always follow the path of truth, righteousness, and devotion."
+                      }
+                    ]
+                  };
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[Firestore Scripture Loader] Error fetching Mahapuranas/Upapuranas path:", e);
       }
     }
 
@@ -1869,8 +2604,18 @@ export async function fetchScriptureFromFirestore(
       k === "yajurveda" ? "Yajurveda (यजुर्वेदः)" : "",
       k === "yajurveda" ? "Yajurveda (यजुर्वेद)" : "",
       k === "yajurveda" ? "Yajurveda" : "",
+      k === "atharvaveda" ? "Atharvaveda (अथर्ववेद)" : "",
+      k === "atharvaveda" ? "Atharvaveda" : "",
+      k === "samaveda" ? "Samaveda (सामवेद)" : "",
+      k === "samaveda" ? "Samaveda" : "",
+      k === "upapuranas" ? "Upapuranas (उपपुराण)" : "",
+      k === "upapuranas" ? "Upapuranas" : "",
       k === "mahapuranas" || k.includes("purana") ? "Mahapuranas (महापुराणाणि)" : "",
       k === "mahapuranas" || k.includes("purana") ? "Mahapuranas" : "",
+      k === "upanishads" || k.includes("upanishad") ? " Principal Upanishads (उपनिषद्)" : "",
+      k === "upanishads" || k.includes("upanishad") ? "Principal Upanishads (उपनिषद्)" : "",
+      k === "upanishads" || k.includes("upanishad") ? " Principal Upanishads" : "",
+      k === "upanishads" || k.includes("upanishad") ? "Principal Upanishads" : "",
       bookKey,
       bookKey.charAt(0).toUpperCase() + bookKey.slice(1).replace(/_/g, " "),
     ].filter(Boolean);
@@ -1885,9 +2630,9 @@ export async function fetchScriptureFromFirestore(
           let chapSnap;
           try {
             const q = query(chapCol, orderBy("chapter_number", "asc"));
-            chapSnap = await getDocs(q);
+            chapSnap = await safeGetDocs(q);
           } catch (e) {
-            chapSnap = await getDocs(chapCol);
+            chapSnap = await safeGetDocs(chapCol);
           }
           
           if (!chapSnap.empty) {
@@ -1903,9 +2648,9 @@ export async function fetchScriptureFromFirestore(
               let versesSnap;
               try {
                 const q = query(versesCol, orderBy("verse_number", "asc"));
-                versesSnap = await getDocs(q);
+                versesSnap = await safeGetDocs(q);
               } catch (e) {
-                versesSnap = await getDocs(versesCol);
+                versesSnap = await safeGetDocs(versesCol);
               }
               
               if (!versesSnap.empty) {
@@ -1926,9 +2671,9 @@ export async function fetchScriptureFromFirestore(
       let rootSnap;
       try {
         const q = query(rootCol, orderBy("chapter_number", "asc"));
-        rootSnap = await getDocs(q);
+        rootSnap = await safeGetDocs(q);
       } catch (e) {
-        rootSnap = await getDocs(rootCol);
+        rootSnap = await safeGetDocs(rootCol);
       }
       if (!rootSnap.empty) {
         for (const docSnap of rootSnap.docs) {
@@ -1943,9 +2688,9 @@ export async function fetchScriptureFromFirestore(
             let versesSnap;
             try {
               const q = query(versesCol, orderBy("verse_number", "asc"));
-              versesSnap = await getDocs(q);
+              versesSnap = await safeGetDocs(q);
             } catch (e) {
-              versesSnap = await getDocs(versesCol);
+              versesSnap = await safeGetDocs(versesCol);
             }
             if (!versesSnap.empty) {
               console.log(`[Firestore Scripture Loader] Hit: Found ${versesSnap.size} verses under direct chapter doc ${docSnap.id} in 'Holy Scripture Books'`);
@@ -1960,13 +2705,13 @@ export async function fetchScriptureFromFirestore(
     
     // Check default subcollection scriptures/{bookKey}/verses
     const versesRef = collection(db, "scriptures", k, "verses");
-    const snapshot = await getDocs(versesRef);
+    const snapshot = await safeGetDocs(versesRef);
     
     if (snapshot.empty) {
       // Try alternative flat collection: verses (filtered by bookKey)
       const flatRef = collection(db, "verses");
       const q = query(flatRef, where("bookKey", "==", k));
-      const flatSnapshot = await getDocs(q);
+      const flatSnapshot = await safeGetDocs(q);
       
       if (flatSnapshot.empty) {
         return null;
@@ -2050,6 +2795,25 @@ export async function fetchYajurvedaContent(
   levelId: string | number,
   subLevelId?: string | number
 ): Promise<YajurvedaResponse> {
+  const cacheKey = `yajur_${branch}_${levelId}_${subLevelId || ""}`;
+  const cached = getCachedScripture(cacheKey);
+  if (cached) {
+    console.log(`[Firestore Scripture Loader] Cache hit for Yajurveda '${cacheKey}'`);
+    return cached;
+  }
+
+  const result = await _fetchYajurvedaContentUncached(branch, levelId, subLevelId);
+  if (result && result.verses && result.verses.length > 0) {
+    setCachedScripture(cacheKey, result);
+  }
+  return result;
+}
+
+async function _fetchYajurvedaContentUncached(
+  branch: string,
+  levelId: string | number,
+  subLevelId?: string | number
+): Promise<YajurvedaResponse> {
   const normBranch = (branch || "").toLowerCase().trim();
   const isKrishna = normBranch.includes("krishna");
   const targetLevelNum = Number(levelId) || Number(String(levelId).replace(/[^0-9]/g, "")) || 1;
@@ -2074,9 +2838,9 @@ export async function fetchYajurvedaContent(
       try {
         let kSnap;
         try {
-          kSnap = await getDocs(query(kColRef, orderBy("kanda_number", "asc")));
+          kSnap = await safeGetDocs(query(kColRef, orderBy("kanda_number", "asc")));
         } catch {
-          kSnap = await getDocs(kColRef);
+          kSnap = await safeGetDocs(kColRef);
         }
 
         if (kSnap && !kSnap.empty) {
@@ -2105,12 +2869,12 @@ export async function fetchYajurvedaContent(
           const pColRef = collection(matchedKandaDoc.ref, pSub);
           let pSnap;
           try {
-            pSnap = await getDocs(query(pColRef, orderBy("prashana_number", "asc")));
+            pSnap = await safeGetDocs(query(pColRef, orderBy("prashana_number", "asc")));
           } catch {
             try {
-              pSnap = await getDocs(query(pColRef, orderBy("prashna_number", "asc")));
+              pSnap = await safeGetDocs(query(pColRef, orderBy("prashna_number", "asc")));
             } catch {
-              pSnap = await getDocs(pColRef);
+              pSnap = await safeGetDocs(pColRef);
             }
           }
 
@@ -2144,9 +2908,9 @@ export async function fetchYajurvedaContent(
         const vColRef = collection(pDoc.ref, "verses");
         let vSnap;
         try {
-          vSnap = await getDocs(query(vColRef, orderBy("verse_number", "asc")));
+          vSnap = await safeGetDocs(query(vColRef, orderBy("verse_number", "asc")));
         } catch {
-          vSnap = await getDocs(vColRef);
+          vSnap = await safeGetDocs(vColRef);
         }
 
         return vSnap.docs.map((vDoc, idx) => {
@@ -2182,9 +2946,9 @@ export async function fetchYajurvedaContent(
       try {
         let cSnap;
         try {
-          cSnap = await getDocs(query(cColRef, orderBy("chapter_number", "asc")));
+          cSnap = await safeGetDocs(query(cColRef, orderBy("chapter_number", "asc")));
         } catch {
-          cSnap = await getDocs(cColRef);
+          cSnap = await safeGetDocs(cColRef);
         }
 
         if (cSnap && !cSnap.empty) {
@@ -2208,9 +2972,9 @@ export async function fetchYajurvedaContent(
       const vColRef = collection(matchedChapterDoc.ref, "verses");
       let vSnap;
       try {
-        vSnap = await getDocs(query(vColRef, orderBy("verse_number", "asc")));
+        vSnap = await safeGetDocs(query(vColRef, orderBy("verse_number", "asc")));
       } catch {
-        vSnap = await getDocs(vColRef);
+        vSnap = await safeGetDocs(vColRef);
       }
 
       if (vSnap && !vSnap.empty) {
@@ -2267,15 +3031,53 @@ export async function fetchYajurvedaContent(
   };
 }
 
+function extractVerseTextFirestore(d: any): string {
+  if (!d) return "";
+  const val = d.text ?? d.text_content ?? d.cleanText ?? d.text_clean ?? d.text_with_svara ?? d.text_svara ?? 
+    d.originalText ?? d.original_text ?? d.sanskrit ?? d.sanskrit_text ?? d.sanskritText ?? d.devanagariText ??
+    d.sloka ?? d.shloka ?? d.sloka_text ?? d.shloka_text ?? d.slokaText ?? d.shlokaText ??
+    d.devanagari ?? d.devanagari_text ?? d.mantra ?? d.mantra_text ?? d.mantraText ??
+    d.samhita ?? d.samhita_text ?? d.richa ?? d.rc ?? d.rik ?? d.padapatha ?? d.pada ?? d.sukta_text ?? 
+    d.verse_text ?? d.verse_sanskrit ?? d.verse_devanagari ?? d.verse ?? d.content ?? d.verse_content ?? 
+    d.body ?? d.lines ?? d.translation ?? d.english ?? d.hindi ?? "";
+  
+  if (typeof val === "string") return val.trim();
+  if (Array.isArray(val)) {
+    return val.map((item: any) => typeof item === "string" ? item : (item?.text || item?.devanagari || item?.sanskrit || JSON.stringify(item))).join("\n");
+  }
+  if (typeof val === "object") {
+    return val.text || val.devanagari || val.sanskrit || val.sanskritText || val.content || JSON.stringify(val);
+  }
+  return String(val);
+}
+
+function extractTranslitFirestore(d: any): string {
+  if (!d) return "";
+  const val = d.itx ?? d.transliteration ?? d.translit ?? d.phonetic ?? d.roman ?? d.iast ?? d.iast_text ?? d.english_transliteration ?? d.transliterationText ?? "";
+  if (typeof val === "string") return val.trim();
+  if (Array.isArray(val)) return val.join("\n");
+  return String(val);
+}
+
+function extractTranslFirestore(d: any, fallbackText: string): string {
+  if (!d) return fallbackText;
+  const val = d.translation ?? d.english ?? d.english_translation ?? d.english_meaning ?? d.englishTranslation ??
+    d.hindi ?? d.hindi_translation ?? d.hindi_meaning ?? d.hindiTranslation ??
+    d.meaning ?? d.purport ?? d.anvaya ?? d.bhashya ?? d.description ?? fallbackText;
+  if (typeof val === "string") return val.trim();
+  if (Array.isArray(val)) return val.join("\n");
+  return String(val);
+}
+
 function formatFirestoreVerses(docs: any[], div: number, bookKey: string) {
   const verses = docs.map((docSnap) => {
     const d = docSnap.data();
     
     // Support all potential variations of verse keys, prioritizing specific fields, then ID
-    let verseNum = d.verse_number || d.verseNumber || d.verse || d.number || d.verse_num || d.verse_no || d.verseNo || d.id || docSnap.id;
+    let verseNum = d.verse_number || d.verseNumber || d.verse || d.number || d.verse_num || d.verse_no || d.verseNo || d.mantra_number || d.sloka_number || d.id || docSnap.id;
     
-    // Convert to string for formatting
-    let displayNum = String(verseNum);
+    // Convert to string for formatting, stripping any 'verse_' prefix
+    let displayNum = String(verseNum).replace(/^verse[_\s]*/i, "");
     
     // Replace underscores with dots to beautifully format doc IDs like "1_10" into "1.10"
     if (displayNum.includes("_")) {
@@ -2288,11 +3090,15 @@ function formatFirestoreVerses(docs: any[], div: number, bookKey: string) {
       displayNum = `${div}.${displayNum}`;
     }
     
+    const textVal = extractVerseTextFirestore(d);
+    const translitVal = extractTranslitFirestore(d);
+    const translVal = extractTranslFirestore(d, textVal);
+
     return {
       number: displayNum,
-      originalText: d.originalText || d.cleanText || d.text_clean || d.text_with_svara || d.text || d.text_content || "",
-      transliteration: d.transliteration || d.phonetic || d.roman || d.itx || "",
-      translation: d.translation || d.english || ""
+      originalText: textVal,
+      transliteration: translitVal,
+      translation: translVal
     };
   });
   
@@ -2370,7 +3176,33 @@ export interface CanonsControllerResult {
  * 4. Reads hierarchy_type metadata ("flat", "multi_tier", "kandas_prashanas", "chapters", "standard")
  *    to determine rendering structure dynamically without skipping subcollections.
  */
+let masterCanonsCache: CanonsControllerResult | null = null;
+
 export async function fetchMasterCanonsAndRoute(): Promise<CanonsControllerResult> {
+  if (masterCanonsCache && masterCanonsCache.allCanons.length > 0) {
+    return masterCanonsCache;
+  }
+  try {
+    const sess = sessionStorage.getItem("master_canons_cache");
+    if (sess) {
+      masterCanonsCache = JSON.parse(sess);
+      if (masterCanonsCache && masterCanonsCache.allCanons.length > 0) {
+        return masterCanonsCache;
+      }
+    }
+  } catch (e) {}
+
+  const result = await _fetchMasterCanonsAndRouteUncached();
+  if (result && result.allCanons && result.allCanons.length > 0) {
+    masterCanonsCache = result;
+    try {
+      sessionStorage.setItem("master_canons_cache", JSON.stringify(result));
+    } catch (e) {}
+  }
+  return result;
+}
+
+async function _fetchMasterCanonsAndRouteUncached(): Promise<CanonsControllerResult> {
   const allCanonsMap = new Map<string, MasterCanonBook>();
   const groupedByReligion: Record<string, MasterCanonBook[]> = {};
 
@@ -2422,7 +3254,7 @@ export async function fetchMasterCanonsAndRoute(): Promise<CanonsControllerResul
   // 1. Fetch from 'books' collection
   try {
     const booksColRef = collection(db, "books");
-    const booksSnap = await getDocs(booksColRef);
+    const booksSnap = await safeGetDocs(booksColRef);
     booksSnap.forEach((docSnap) => {
       processDoc(docSnap.id, docSnap.data(), `books/${docSnap.id}`);
     });
@@ -2433,7 +3265,7 @@ export async function fetchMasterCanonsAndRoute(): Promise<CanonsControllerResul
   // 2. Fetch from 'Holy Scripture Books' top-level collection
   try {
     const holyBooksColRef = collection(db, "Holy Scripture Books");
-    const holyBooksSnap = await getDocs(holyBooksColRef);
+    const holyBooksSnap = await safeGetDocs(holyBooksColRef);
     holyBooksSnap.forEach((docSnap) => {
       if (!allCanonsMap.has(docSnap.id)) {
         processDoc(docSnap.id, docSnap.data(), `Holy Scripture Books/${docSnap.id}`);
@@ -2448,7 +3280,7 @@ export async function fetchMasterCanonsAndRoute(): Promise<CanonsControllerResul
   for (const relName of knownReligions) {
     try {
       const relColRef = collection(db, "Holy Scripture Books", relName, "books");
-      const relSnap = await getDocs(relColRef);
+      const relSnap = await safeGetDocs(relColRef);
       relSnap.forEach((docSnap) => {
         if (!allCanonsMap.has(docSnap.id)) {
           processDoc(docSnap.id, docSnap.data(), `Holy Scripture Books/${relName}/books/${docSnap.id}`, relName);
@@ -2464,19 +3296,48 @@ export async function fetchMasterCanonsAndRoute(): Promise<CanonsControllerResul
     processDoc("Yajurveda (यजुर्वेदः)", {
       title: "Yajurveda (यजुर्वेदः)",
       religion: "hinduism",
-      hierarchy_type: "kandas_prashanas",
-      branches: ["Shukla", "Krishna"],
-      description: "Sacred Veda containing ritual mantras and prose formulas, divided into Shukla (White) and Krishna (Black) branches."
-    });
+      description: "Vedic ritual hymns, mantras, and sacrificial formulas divided into Shukla and Krishna traditions."
+    }, "Holy Scripture Books/Hinduism/Yajurveda (यजुर्वेदः)", "Hinduism");
   }
 
   if (!allCanonsMap.has("Mahapuranas (महापुराणाणि)") && !allCanonsMap.has("Mahapuranas") && !allCanonsMap.has("mahapuranas")) {
     processDoc("Mahapuranas (महापुराणाणि)", {
       title: "Mahapuranas (महापुराणाणि)",
       religion: "hinduism",
-      hierarchy_type: "chapters",
-      description: "Collection of 14 traditional Mahapuranas (including Bhagavata, Vishnu, Shiva, Brahma, Padma, Skanda, Agni, and others) detailing cosmology, legends, genealogies, and devotional philosophy."
-    });
+      description: "The eighteen sacred genre collections of Indian literature detailing cosmology, genealogies, and divine legends."
+    }, "Holy Scripture Books/Hinduism/Mahapuranas (महापुराणाणि)", "Hinduism");
+  }
+
+  if (!allCanonsMap.has("Atharvaveda (अथर्ववेद)") && !allCanonsMap.has("Atharvaveda") && !allCanonsMap.has("atharvaveda")) {
+    processDoc("Atharvaveda (अथर्ववेद)", {
+      title: "Atharvaveda (अथर्ववेद)",
+      religion: "hinduism",
+      description: "The Veda of everyday life, health, spiritual protection, statecraft, and ecological hymns like the Prithvi Sukta."
+    }, "Holy Scripture Books/Hinduism/Atharvaveda (अथर्ववेद)", "Hinduism");
+  }
+
+  if (!allCanonsMap.has("Samaveda (सामवेद)") && !allCanonsMap.has("Samaveda") && !allCanonsMap.has("samaveda")) {
+    processDoc("Samaveda (सामवेद)", {
+      title: "Samaveda (सामवेद)",
+      religion: "hinduism",
+      description: "The Veda of melodies and sacred chants set to musical notations, glorifying devotion and divine harmony."
+    }, "Holy Scripture Books/Hinduism/Samaveda (सामवेद)", "Hinduism");
+  }
+
+  if (!allCanonsMap.has("Upapuranas (उपपुराण)") && !allCanonsMap.has("Upapuranas") && !allCanonsMap.has("upapuranas")) {
+    processDoc("Upapuranas (उपपुराण)", {
+      title: "Upapuranas (उपपुराण)",
+      religion: "hinduism",
+      description: "The traditional secondary Puranas (Upapuranas) of Hinduism detailing divine sagas, local traditions, pilgrimages, deity lore, and spiritual wisdom."
+    }, "Holy Scripture Books/Hinduism/Upapuranas (उपपुराण)", "Hinduism");
+  }
+
+  if (!allCanonsMap.has("Principal Upanishads (उपनिषद्)") && !allCanonsMap.has("Principal Upanishads") && !allCanonsMap.has("upanishads")) {
+    processDoc("Principal Upanishads (उपनिषद्)", {
+      title: "Principal Upanishads (उपनिषद्)",
+      religion: "hinduism",
+      description: "The 108 traditional Upanishads of Hinduism containing the foundational philosophical treatises on Brahman, Atman, and supreme spiritual realization."
+    }, "Holy Scripture Books/Hinduism/Principal Upanishads (उपनिषद्)", "Hinduism");
   }
 
   const allCanons = Array.from(allCanonsMap.values());

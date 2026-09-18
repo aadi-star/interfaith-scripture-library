@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { SCRIPTURE_BOOKS, RELIGION_LABELS, RELIGION_COLORS } from "../scripturesRegistry";
+import { SCRIPTURE_BOOKS, RELIGION_LABELS, RELIGION_COLORS, UPANISHAD_108_KEYS } from "../scripturesRegistry";
 import { ScriptureBook, ReligionType } from "../types";
 import { Star, BookOpen, Compass, Sparkles, Headphones, Search, X, Calendar, ArrowRight, Layers, FolderTree, Loader2 } from "lucide-react";
 import WordOfTheDayComponent from "./WordOfTheDay";
 import { ReligiousIcon } from "./ReligiousIcon";
-import { GitaFirestoreView } from "./GitaFirestoreView";
+import { GitaFirestoreView, ScriptureBookSelection } from "./GitaFirestoreView";
 import { DynamicCanonNavigator } from "./DynamicCanonNavigator";
 import { fetchMasterCanonsAndRoute, MasterCanonBook } from "../firebase";
 
@@ -517,14 +517,54 @@ export default function ScriptureBrowser({
   // States for the newly added Bible chapters and verses Quick Jump shortcut
   const [bibleReference, setBibleReference] = useState("");
   const [bibleError, setBibleError] = useState("");
-  const [selectedFirestoreBook, setSelectedFirestoreBook] = useState<"bhagavad_gita" | "rigveda" | "ramayana" | "mahabharata" | "yajurveda" | "mahapuranas">("bhagavad_gita");
+  const [selectedFirestoreBook, setSelectedFirestoreBook] = useState<ScriptureBookSelection>("bhagavad_gita");
+
+  const UPAPURANA_KEYS = [
+    "upapuranas",
+    "sanatkumara_purana",
+    "narasimha_purana",
+    "ganesha_purana",
+    "mudgala_purana",
+    "brihan_naradiya_purana",
+    "brihannaradiya_purana",
+    "kalika_purana",
+    "vayu_purana",
+    "sivadharma_purana",
+    "manava_purana",
+    "devi_bhagavata_purana",
+    "vishnudharmottara_purana",
+    "sivarahasya_purana",
+    "parashara_purana",
+    "saura_purana",
+    "saurapurana",
+    "nila_purana",
+    "nilamata_purana",
+    "harivamsha_purana",
+    "malla_purana",
+    "bhargava_purana"
+  ];
 
   const handleSelectBookAction = (book: ScriptureBook, portionRef?: string, isAudioMode?: boolean) => {
-  const isYajur = book.key.includes("yajurveda") || book.title.toLowerCase().includes("yajurveda");
-  const isPurana = book.key.includes("purana") || book.title.toLowerCase().includes("purana") || book.key === "mahapuranas";
-  if (isYajur || isPurana || ["bhagavad_gita","rigveda","ramayana","mahabharata","mahapuranas"].includes(book.key)) {
-    setSelectedFirestoreBook(isYajur ? "yajurveda" : isPurana ? "mahapuranas" : book.key as any);
-  }
+    const isYajur = book.key.includes("yajurveda") || book.title.toLowerCase().includes("yajurveda");
+    const isUpapurana = UPAPURANA_KEYS.includes(book.key) || book.key.includes("upapurana") || book.title.toLowerCase().includes("upapurana");
+    const isMahapurana = !isUpapurana && (book.key.includes("purana") || book.title.toLowerCase().includes("purana") || book.key === "mahapuranas");
+    const isUpanishad = book.key === "upanishads" || book.key.includes("upanishad") || book.title.toLowerCase().includes("upanishad") || UPANISHAD_108_KEYS.includes(book.key);
+    if (isYajur || isUpapurana || isMahapurana || isUpanishad || [
+      "bhagavad_gita",
+      "rigveda",
+      "ramayana",
+      "mahabharata",
+      "yajurveda",
+      "samaveda",
+      "atharvaveda",
+      "mahapuranas",
+      "upapuranas",
+      "upanishads",
+      ...UPAPURANA_KEYS,
+      ...UPANISHAD_108_KEYS
+    ].includes(book.key)) {
+      setSelectedFirestoreBook(isYajur ? "yajurveda" : isUpapurana ? "upapuranas" : isMahapurana ? "mahapuranas" : isUpanishad ? "upanishads" : book.key as any);
+    }
 
   const liveData = masterCanons.find(mc => mc.key === book.key);
   const isMultiTier = liveData?.hierarchy_type === "multi_tier" || liveData?.hierarchy_type === "kandas_prashanas";
@@ -652,14 +692,15 @@ export default function ScriptureBrowser({
           </div>
 
           <div className="flex items-center gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-            {favorites.map((fav) => {
+            {favorites.map((fav, index) => {
               const book = SCRIPTURE_BOOKS.find((b) => b.key === fav.itemKey);
               if (!book) return null;
               const bookImg = resolveBookImage(book);
+              const uniqueKey = fav.id ? fav.id : `${book.key}_${index}`;
               return (
                 <div
-                  id={`shelf-item-${book.key}`}
-                  key={book.key}
+                  id={`shelf-item-${book.key}-${index}`}
+                  key={uniqueKey}
                   className="flex-shrink-0 w-64 bg-[#0a0a0f] border border-white/5 hover:border-amber-500/30 rounded-xl p-3 flex items-center gap-3 transition-all duration-200 group relative shadow-md"
                 >
                   <div className="w-14 h-16 rounded-lg overflow-hidden shrink-0 bg-white/5">
@@ -900,11 +941,19 @@ export default function ScriptureBrowser({
                   key={mc.id}
                   onClick={() => {
                     const isYajur = mc.key.includes("yajurveda") || mc.title.toLowerCase().includes("yajurveda");
-                    const isPurana = mc.key.includes("purana") || mc.title.toLowerCase().includes("purana") || mc.key === "mahapuranas";
+                    const isUpapurana = UPAPURANA_KEYS.includes(mc.key) || mc.key.includes("upapurana") || mc.title.toLowerCase().includes("upapurana");
+                    const isMahapurana = !isUpapurana && (mc.key.includes("purana") || mc.title.toLowerCase().includes("purana") || mc.key === "mahapuranas");
+                    const isUpanishad = mc.key === "upanishads" || mc.key.includes("upanishad") || UPANISHAD_108_KEYS.includes(mc.key);
                     if (isYajur) {
                       setSelectedFirestoreBook("yajurveda");
-                    } else if (isPurana) {
+                    } else if (isUpapurana) {
+                      setSelectedFirestoreBook("upapuranas");
+                    } else if (isMahapurana) {
                       setSelectedFirestoreBook("mahapuranas");
+                    } else if (isUpanishad) {
+                      setSelectedFirestoreBook("upanishads");
+                    } else if (mc.key === "samaveda" || mc.key === "atharvaveda") {
+                      setSelectedFirestoreBook(mc.key as any);
                     }
                     setActiveDynamicBook(mc);
                   }}

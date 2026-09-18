@@ -17,9 +17,9 @@ service cloud.firestore {
     }
     
     // Public read for custom Holy Scripture Books collection and all nested subcollections
-    // (including Bhagavad Gita, Rigveda (ऋग्वेद), Ramayana (रामायणम्), Mahabharata (महाभारतम्), Yajurveda (यजुर्वेदः), and Mahapuranas (महापुराणाणि) with all puranas, samhitas, chapters, and verses)
-    match /{colId}/{document=**} {
-      allow read: if colId == "Holy Scripture Books" || colId == "books" || colId == "scriptures" || colId == "Mahapuranas (महापुराणाणि)" || colId == "Mahapuranas";
+    // (including Bhagavad Gita, Rigveda (ऋग्वेद), Ramayana (रामायणम्), Mahabharata (महाभारतम्), Yajurveda (यजुर्वेदः), Mahapuranas (महापुराणाणि), and Upapuranas (उपपुराण) with all puranas, samhitas, chapters, and verses)
+    match /{topCollection}/{allPaths=**} {
+      allow read: if topCollection == "Holy Scripture Books" || topCollection == "books" || topCollection == "scriptures" || topCollection == "Mahapuranas (महापुराणाणि)" || topCollection == "Mahapuranas" || topCollection == "Upapuranas (उपपुराण)" || topCollection == "Upapuranas" || topCollection == "Atharvaveda (अथर्ववेद)" || topCollection == "Atharvaveda" || topCollection == "Samaveda (सामवेद)" || topCollection == "Samaveda";
       allow write: if false;
     }
     

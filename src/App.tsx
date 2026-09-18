@@ -8212,7 +8212,10 @@ export default function App() {
             }
           }
 
-          const isLineHeightInsufficient = lineRatio < 1.79;
+          // Only flag verse paragraphs/multiline body text with lineRatio < 1.35, allowing single-line UI titles
+          const isInlineOrHeading = ["span", "h1", "h2", "h3", "h4", "button"].includes(el.tagName.toLowerCase());
+          const minRatio = isInlineOrHeading ? 1.2 : 1.5;
+          const isLineHeightInsufficient = lineRatio < minRatio;
 
           const letterSpacingVal = computed.letterSpacing;
           let letterSpacingPx = 0;
